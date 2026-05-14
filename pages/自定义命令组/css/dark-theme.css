@@ -1,0 +1,208 @@
+/* ===== 深色模式 / Dark Theme ===== */
+[data-theme="dark"],
+.dark-mode {
+    /* 基础颜色 */
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --bg-tertiary: #334155;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-tertiary: #64748b;
+    --border-color: #334155;
+    --input-bg: #1e293b;
+    --card-bg: #1e293b;
+    --hover-bg: #334155;
+    --primary-color: #60a5fa;
+    --primary-hover: #3b82f6;
+}
+
+[data-theme="dark"] body,
+.dark-mode body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .groups-section,
+.dark-mode .groups-section {
+    background: var(--card-bg);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .group-card,
+.dark-mode .group-card {
+    background: var(--card-bg);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .group-card-title,
+.dark-mode .group-card-title {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .group-card-desc,
+.dark-mode .group-card-desc {
+    color: var(--text-secondary);
+}
+
+[data-theme="dark"] .group-card-priority,
+.dark-mode .group-card-priority {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+}
+
+[data-theme="dark"] .edit-panel,
+.dark-mode .edit-panel {
+    background: var(--bg-primary);
+}
+
+[data-theme="dark"] .panel-header,
+.dark-mode .panel-header {
+    background: var(--bg-primary);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .panel-header h3,
+.dark-mode .panel-header h3 {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .form,
+.dark-mode .form {
+    background: var(--bg-primary);
+}
+
+[data-theme="dark"] .form-group label,
+.dark-mode .form-group label {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .input-field label,
+.dark-mode .input-field label {
+    color: var(--text-secondary);
+}
+
+[data-theme="dark"] .input-field input,
+.dark-mode .input-field input {
+    background: var(--input-bg);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .form-group input[type="text"],
+[data-theme="dark"] .form-group input[type="number"],
+.dark-mode .form-group input[type="text"],
+.dark-mode .form-group input[type="number"] {
+    background: var(--input-bg);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .commands-section,
+.dark-mode .commands-section {
+    background: var(--bg-secondary);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .command-item,
+.dark-mode .command-item {
+    background: var(--card-bg);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .segmented-control,
+.dark-mode .segmented-control {
+    background: var(--bg-tertiary);
+}
+
+[data-theme="dark"] .segment,
+.dark-mode .segment {
+    color: var(--text-secondary);
+}
+
+[data-theme="dark"] .segment.active,
+.dark-mode .segment.active {
+    background: var(--card-bg);
+    color: var(--primary-color);
+}
+
+[data-theme="dark"] .number-input,
+.dark-mode .number-input {
+    background: var(--input-bg);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .number-input input,
+.dark-mode .number-input input {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .tooltip-trigger,
+.dark-mode .tooltip-trigger {
+    background: var(--card-bg);
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+}
+
+[data-theme="dark"] .toggle-label,
+.dark-mode .toggle-label {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .toggle-slider,
+.dark-mode .toggle-slider {
+    background: #4a5568;
+}
+
+[data-theme="dark"] .toggle-switch input:checked + .toggle-slider,
+.dark-mode .toggle-switch input:checked + .toggle-slider {
+    background: #3c96ca;
+}
+
+[data-theme="dark"] .section-header h2,
+.dark-mode .section-header h2 {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .section-header h4,
+.dark-mode .section-header h4 {
+    color: var(--text-secondary);
+}
+
+[data-theme="dark"] .empty-state,
+.dark-mode .empty-state {
+    background: var(--bg-secondary);
+    border-color: var(--border-color);
+    color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-text,
+.dark-mode .btn-text {
+    color: var(--text-secondary);
+}
+
+[data-theme="dark"] .btn-text:hover,
+.dark-mode .btn-text:hover {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .form-actions,
+.dark-mode .form-actions {
+    border-color: var(--border-color);
+}
+
+/* 深色模式下的确认对话框 */
+[data-theme="dark"] .confirm-dialog-content,
+.dark-mode .confirm-dialog-content {
+    background: var(--card-bg);
+}
+
+[data-theme="dark"] .confirm-dialog-content h4,
+.dark-mode .confirm-dialog-content h4 {
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .confirm-dialog-content p,
+.dark-mode .confirm-dialog-content p {
+    color: var(--text-secondary);
+}

@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>自定义命令组配置</title>
+    <link rel="stylesheet" href="./css/base.css"/>
+    <link rel="stylesheet" href="./css/components.css"/>
+    <link rel="stylesheet" href="./css/forms.css"/>
+    <link rel="stylesheet" href="./css/panels.css"/>
+    <link rel="stylesheet" href="./css/commands.css"/>
+    <link rel="stylesheet" href="./css/notifications.css"/>
+    <link rel="stylesheet" href="./css/responsive.css"/>
+    <link rel="stylesheet" href="./css/dark-theme.css"/>
+</head>
+<body>
+<div class="container" v-scope>
+    <main class="main">
+        <!-- 分组列表 -->
+        <section class="groups-section">
+            <div class="section-header">
+                <h2>自定义命令组列表</h2>
+                <button class="btn btn-primary" @click="openPanel()">
+                    <span class="icon">+</span> 新建分组
+                </button>
+            </div>
+            <div class="groups-list">
+                <!-- 空状态 -->
+                <div class="empty-state" v-if="groups.length === 0">
+                    <svg class="empty-state-icon" width="64" height="64" viewBox="0 0 1024 1024"
+                         xmlns="http://www.w3.org/2000/svg">
+                        <path d="M337.487 213.925c-6.537-6.547-15.571-10.598-25.553-10.598s-19.018 4.050-25.553 10.597l-256.357 256.383c-6.547 6.546-10.597 15.589-10.597 25.579 0 9.989 4.050 19.034 10.597 25.579l256.343 256.343c7.065 7.065 16.313 10.596 25.547 10.596s18.483-3.532 25.547-10.596c14.129-14.129 14.129-37.029 0-51.158l-230.72-230.758 230.733-230.797c6.555-6.547 10.61-15.596 10.61-25.591 0-9.989-4.050-19.034-10.597-25.579zM997.484 470.308l-256.343-256.382c-6.467-6.134-15.228-9.906-24.869-9.906-19.975 0-36.17 16.193-36.17 36.17 0 9.654 3.782 18.425 9.946 24.911l230.718 230.781-230.733 230.784c-6.551 6.546-10.604 15.593-10.604 25.585 0 19.969 16.183 36.159 36.149 36.17 9.236 0 18.484-3.532 25.548-10.596l256.343-256.343c6.558-6.545 10.615-15.595 10.615-25.591 0-9.99-4.052-19.035-10.603-25.579zM609.667 82.453c-2.506-0.624-5.381-0.981-8.34-0.981-17.042 0-31.313 11.868-34.999 27.789l-175.627 756.609c-0.583 2.435-0.917 5.231-0.917 8.105 0 20.022 16.229 36.255 36.252 36.259 17.063-0.034 31.356-11.861 35.158-27.763l175.499-756.59c0.598-2.463 0.942-5.292 0.942-8.199 0-17.066-11.82-31.372-27.719-35.177z"
+                              fill="#cbd5e0"/>
+                    </svg>
+                    <p>暂无自定义命令组</p>
+                    <p style="font-size: 13px; margin-top: 8px;">点击「新建分组」开始创建</p>
+                </div>
+                <!-- 分组卡片 -->
+                <div v-for="(group, index) in groups" :key="index" class="group-card" @click="openPanel(index)">
+                    <div class="group-card-header">
+                        <span class="group-card-title">{{ group.group_name }}</span>
+                        <span class="group-card-badges">
+                            <span class="group-card-hidden" v-if="group.hidden">
+                                <svg viewBox="0 0 1024 1024" width="14" height="14" fill="#94a3b8">
+                                    <path d="M215.552 809.984L802.304 187.904c9.216-9.728 24.576-10.24 34.304-1.024 9.728 9.216 10.24 24.576 1.024 34.304L250.368 843.264c-9.216 9.728-24.576 10.24-34.304 1.024-9.216-9.216-9.728-24.576-0.512-34.304z"/>
+                                    <path d="M183.296 509.44c-2.048-5.12-2.56-19.968-1.024-25.6 111.616-147.968 228.864-219.136 348.672-211.456 43.008 2.56 82.944 15.872 119.296 34.304l34.304-36.352c-45.056-24.576-95.744-42.496-150.528-45.568C396.8 215.04 265.216 293.376 142.336 456.192c-13.824 18.432-10.752 60.416-1.536 76.8 15.872 28.16 75.264 92.672 162.816 140.8l34.304-36.352c-84.48-43.52-141.824-105.472-154.624-128zM884.736 460.8c-18.432-32.768-70.144-100.864-144.384-155.648l-33.792 35.84c72.192 52.224 121.856 118.272 135.68 142.336 1.536 4.608 3.072 19.456 2.56 26.624-109.568 126.464-230.4 184.32-358.912 172.032-29.696-3.072-57.856-9.216-83.968-17.92l-35.84 38.4c35.328 13.824 74.24 24.064 115.2 27.648 13.312 1.024 26.112 2.048 38.912 2.048 131.584 0 253.952-65.024 364.032-193.536 15.872-18.944 6.656-66.56 0.512-77.824z"/>
+                                    <path d="M390.656 477.184c0 28.672 10.24 54.784 26.624 75.776l33.792-35.84c-7.68-11.776-11.776-25.088-11.776-39.936 0-40.448 32.768-73.728 73.728-73.728 13.312 0 25.6 3.584 36.352 9.728l33.792-35.84c-19.968-13.824-44.032-22.528-70.144-22.528-67.584 0.512-122.368 55.296-122.368 122.368zM586.24 477.184c0 40.448-32.768 73.728-73.728 73.728-1.536 0-2.56-0.512-4.096-0.512l-38.4 40.96c13.312 5.12 27.648 7.68 42.496 7.68 67.072 0 121.856-54.784 121.856-121.856 0-17.408-3.584-34.304-10.752-49.152l-38.912 40.96c1.024 3.072 1.536 5.632 1.536 8.192z"/>
+                                </svg>
+                            </span>
+                            <span class="group-card-priority">优先级 {{ group.priority || 0 }}</span>
+                        </span>
+                    </div>
+                    <div class="group-card-desc">{{ group.description || '无描述' }}</div>
+                    <div class="group-card-meta">
+                        <span class="group-card-commands">{{ (group.commands || []).length }} 个命令</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 面板遮罩 -->
+        <div class="panel-overlay" :class="{ visible: panelVisible }" @click="closePanel()"></div>
+
+        <!-- 编辑面板 -->
+        <section class="edit-panel" :class="{ 'panel-visible': panelVisible, expanded: panelExpanded }">
+            <div class="panel-header">
+                <h3>{{ editingIndex >= 0 ? '编辑分组' : '新建分组' }}</h3>
+                <div class="panel-actions">
+                    <button type="button" class="btn btn-icon" title="展开面板" @click="toggleExpand()">
+                        {{ panelExpanded ? '⇋' : '⛶' }}
+                    </button>
+                    <button class="btn btn-icon" @click="closePanel()">×</button>
+                </div>
+            </div>
+
+            <form class="form" @submit.prevent="save()">
+                <div class="form-group">
+                    <label>分组名称 <span class="required">*</span></label>
+                    <div class="input-wrapper">
+                        <input type="text" v-model="form.groupName" required placeholder="例如：常用命令、娱乐命令">
+                    </div>
+                    <span class="hint">若与某个插件名称相同，匹配的命令将合并到该插件中显示</span>
+                </div>
+
+                <div class="form-group">
+                    <label>分组描述</label>
+                    <div class="input-wrapper">
+                        <input type="text" v-model="form.groupDesc" placeholder="该分组的简短描述">
+                    </div>
+                </div>
+
+                <div class="form-row priority-row">
+                    <div class="form-group priority-group">
+                        <div class="label-with-tooltip">
+                            <label>优先级</label>
+                            <button type="button" class="tooltip-trigger" data-tooltip="数字越小排序越靠前">?</button>
+                        </div>
+                        <div class="number-input">
+                            <button type="button" class="number-btn"
+                                    @click="form.priority = Math.max(0, form.priority - 1)">−
+                            </button>
+                            <input type="number" v-model.number="form.priority" min="0" readonly>
+                            <button type="button" class="number-btn" @click="form.priority++">+</button>
+                        </div>
+                    </div>
+                    <div class="form-group checkbox-group">
+                        <label>隐藏</label>
+                        <div class="toggle-row">
+                            <label class="toggle-switch" title="在菜单中隐藏此分组">
+                                <input type="checkbox" v-model="form.hidden">
+                                <span class="toggle-slider"></span>
+                                <span class="toggle-label">隐藏分组</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 命令列表 -->
+                <div class="commands-section">
+                    <div class="section-header">
+                        <h4>包含的命令</h4>
+                        <button type="button" class="btn btn-add-circle" title="添加命令" @click="addCommand()">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                 stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19"></line>
+                                <line x1="5" y1="12" x2="19" y2="12"></line>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="commands-list" :class="{ 'grid-3': panelExpanded }">
+                        <div v-for="(cmd, i) in form.commands" :key="cmd._key" class="command-item">
+                            <div class="command-item-main">
+                                <div class="command-inputs" :class="{ 'regex-mode': cmd.type === 'regex' }">
+                                    <div class="input-field name-field"
+                                         :class="cmd.type === 'regex' ? 'hidden' : 'visible'">
+                                        <label>命令名称 <span class="required">*</span></label>
+                                        <input type="text" v-model="cmd.command" placeholder="例如: help">
+                                        <div class="aliases-section" style="margin-top: 8px;">
+                                            <label style="font-size: 12px; color: #64748b;">命令别名</label>
+                                            <div class="tags-input-wrapper">
+                                                <div class="tags-list">
+                                                    <span class="tag" v-for="item in cmd.aliases" :key="item">
+                                                        {{ item }}
+                                                        <button type="button" class="tag-remove"
+                                                                @click="cmd.aliases.splice(cmd.aliases.indexOf(item), 1)">×</button>
+                                                    </span>
+                                                </div>
+                                                <input type="text" class="tag-input" placeholder="输入后按回车"
+                                                       @keydown.enter.prevent="$event.target.value.trim() && !cmd.aliases.includes($event.target.value.trim()) ? (cmd.aliases.push($event.target.value.trim()), $event.target.value = '') : null">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="input-field pattern-field"
+                                         :class="cmd.type === 'regex' ? 'visible' : 'hidden'">
+                                        <label>正则匹配模式 <span class="required">*</span></label>
+                                        <input type="text" v-model="cmd.pattern" placeholder="例如: ^来.*色图$">
+                                        <div class="examples-section" style="margin-top: 8px;">
+                                            <label style="font-size: 12px; color: #64748b;">示例列表 (可选)</label>
+                                            <div class="tags-input-wrapper">
+                                                <div class="tags-list">
+                                                    <span class="tag" v-for="item in cmd.examples" :key="item">
+                                                        {{ item }}
+                                                        <button type="button" class="tag-remove"
+                                                                @click="cmd.examples.splice(cmd.examples.indexOf(item), 1)">×</button>
+                                                    </span>
+                                                </div>
+                                                <input type="text" class="tag-input" placeholder="输入后按回车"
+                                                       @keydown.enter.prevent="$event.target.value.trim() && !cmd.examples.includes($event.target.value.trim()) ? (cmd.examples.push($event.target.value.trim()), $event.target.value = '') : null">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-remove" @click="removeCommand(i)">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="2">
+                                        <path d="M18 6L6 18M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="command-item-options">
+                                <div class="trigger-type-wrapper">
+                                    <label>触发器类型</label>
+                                    <div class="segmented-control">
+                                        <button type="button" class="segment"
+                                                :class="{ active: cmd.type === 'command' }"
+                                                @click="cmd.type = 'command'">普通命令
+                                        </button>
+                                        <button type="button" class="segment" :class="{ active: cmd.type === 'regex' }"
+                                                @click="cmd.type = 'regex'">正则触发
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="checkbox-group-inline">
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" v-model="cmd.is_admin">
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-label">管理员命令</span>
+                                    </label>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" v-model="cmd.hidden">
+                                        <span class="toggle-slider"></span>
+                                        <span class="toggle-label">隐藏命令</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-danger" @click="handleDelete()" v-if="editingIndex >= 0">
+                        删除分组
+                    </button>
+                    <div class="center-actions">
+                        <button type="button" class="btn btn-text" @click="confirmAndReset">重置</button>
+                        <button type="button" class="btn btn-secondary" @click="closePanel()">取消</button>
+                        <button type="submit" class="btn btn-primary">保存分组</button>
+                    </div>
+                </div>
+            </form>
+        </section>
+    </main>
+
+    <!-- Toast 提示 -->
+    <div class="toast" :class="[toast.type, { show: toast.show }]" v-if="toast.show">{{ toast.message }}</div>
+
+    <!-- 确认对话框 -->
+    <div class="confirm-dialog" :class="{ visible: dialog.show }" v-if="dialog.show" style="display: flex;">
+        <div class="confirm-dialog-overlay" @click="dialog.resolve(false)"></div>
+        <div class="confirm-dialog-content">
+            <h4>{{ dialog.title }}</h4>
+            <p>{{ dialog.message }}</p>
+            <div class="confirm-dialog-actions">
+                <button type="button" class="btn btn-secondary" @click="dialog.resolve(false)">取消</button>
+                <button type="button" class="btn" :class="dialog.okClass" @click="dialog.resolve(true)">{{ dialog.okText
+                    }}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="./lib/petite-vue.iife.js"></script>
+<script type="module" src="./app.js"></script>
+</body>
+</html>

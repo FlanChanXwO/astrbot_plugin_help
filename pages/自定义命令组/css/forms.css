@@ -1,0 +1,532 @@
+/* ===== 表单基础 / Form Base ===== */
+.form {
+    padding: 24px;
+    background: white;
+}
+
+.form-group {
+    margin-bottom: 24px;
+}
+
+.form-row {
+    display: flex;
+    gap: 16px;
+}
+
+.form-row.priority-row {
+    gap: 24px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.form-group.half {
+    flex: 1;
+}
+
+.form-group.priority-group {
+    flex: 0 0 140px;
+    max-width: 140px;
+}
+
+.form-group.checkbox-group {
+    flex: 1 1 auto;
+    min-width: 180px;
+    overflow: visible;
+}
+
+.form-group.checkbox-group .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    padding-top: 6px;
+    min-height: 44px;
+}
+
+.form-group.checkbox-group .toggle-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    flex-shrink: 0;
+    min-width: fit-content;
+    overflow: visible;
+}
+
+.form-group label {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    color: #374151;
+    margin-bottom: 10px;
+}
+
+.hint-inline {
+    font-weight: 400;
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+/* ===== 标签与 Tooltip ===== */
+.label-with-tooltip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.label-with-tooltip label {
+    margin-bottom: 0;
+}
+
+.tooltip-trigger {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 1px solid #cbd5e0;
+    background: white;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    position: relative;
+}
+
+.tooltip-trigger:hover {
+    border-color: #3c96ca;
+    color: #3c96ca;
+    background: rgba(60, 150, 202, 0.08);
+}
+
+.tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%) translateY(-8px);
+    background: #1e293b;
+    color: white;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 400;
+    white-space: nowrap;
+    z-index: 100;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.2s;
+    pointer-events: none;
+}
+
+.tooltip::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #1e293b;
+}
+
+.tooltip.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.toggle-row {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    padding-top: 30px;
+}
+
+.toggle-row .toggle-switch {
+    flex-shrink: 0;
+}
+
+/* ===== 输入框包装器 / Input Wrapper ===== */
+.input-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.input-wrapper::before {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: #e2e8f0;
+    border-radius: 0 0 4px 4px;
+}
+
+.input-wrapper::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 0;
+    height: 2px;
+    background: #3c96ca;
+    transition: all 0.3s ease;
+    border-radius: 0 0 4px 4px;
+}
+
+.input-wrapper:focus-within::after {
+    left: 0;
+    width: 100%;
+}
+
+.form-group input[type="text"],
+.form-group input[type="number"],
+.command-item-row select {
+    width: 100%;
+    padding: 14px 16px;
+    border: none;
+    border-bottom: 2px solid #e2e8f0;
+    border-radius: 4px 4px 0 0;
+    font-size: 14px;
+    transition: all 0.2s;
+    background: #f8fafc;
+    color: #1b1c1d;
+    height: 48px;
+}
+
+.form-group input[type="text"]:focus,
+.form-group input[type="number"]:focus,
+.command-item-row select:focus {
+    outline: none;
+    background: #eef2f6;
+    border-bottom-color: #3c96ca;
+}
+
+.form-group input::placeholder {
+    color: #94a3b8;
+}
+
+.form-group .hint {
+    display: block;
+    font-size: 12px;
+    color: #94a3b8;
+    margin-top: 8px;
+}
+
+.required {
+    color: #ef4444;
+}
+
+/* ===== 数字输入器 / Number Input ===== */
+.number-input {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: #f8fafc;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
+}
+
+.number-btn {
+    width: 36px;
+    height: 44px;
+    border: none;
+    background: transparent;
+    color: #64748b;
+    font-size: 18px;
+    font-weight: 300;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.number-btn:hover {
+    background: #eef2f6;
+    color: #3c96ca;
+}
+
+.number-btn:active {
+    background: #e2e8f0;
+}
+
+.number-input input[type="number"] {
+    width: 60px;
+    height: 44px;
+    border: none;
+    background: transparent;
+    text-align: center;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1b1c1d;
+    -moz-appearance: textfield;
+}
+
+.number-input input[type="number"]::-webkit-outer-spin-button,
+.number-input input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* ===== 卡片式复选框 / Checkbox Card ===== */
+.checkbox-options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.checkbox-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: white;
+}
+
+.checkbox-card:hover {
+    border-color: #3c96ca;
+    background: rgba(60, 150, 202, 0.04);
+}
+
+.checkbox-card input[type="checkbox"] {
+    display: none;
+}
+
+.checkbox-box {
+    width: 20px;
+    height: 20px;
+    border: 2px solid #cbd5e0;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.checkbox-box svg {
+    width: 14px;
+    height: 14px;
+    color: white;
+    opacity: 0;
+    transform: scale(0.5);
+    transition: all 0.2s;
+}
+
+.checkbox-card input[type="checkbox"]:checked + .checkbox-box {
+    background: #3c96ca;
+    border-color: #3c96ca;
+}
+
+.checkbox-card input[type="checkbox"]:checked + .checkbox-box svg {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.checkbox-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.checkbox-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: #374151;
+}
+
+.checkbox-desc {
+    font-size: 12px;
+    color: #94a3b8;
+}
+
+/* ===== 切换开关 / Toggle Switch ===== */
+.checkbox-group-inline {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+}
+
+.toggle-switch {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.toggle-switch input {
+    display: none;
+}
+
+.toggle-slider {
+    width: 44px;
+    height: 24px;
+    background: #e2e8f0;
+    border-radius: 12px;
+    position: relative;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.toggle-slider::after {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    background: white;
+    border-radius: 50%;
+    top: 2px;
+    left: 2px;
+    transition: all 0.2s;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background: #3c96ca;
+}
+
+.toggle-switch input:checked + .toggle-slider::after {
+    left: 22px;
+}
+
+.toggle-label {
+    font-size: 14px;
+    color: #374151;
+    font-weight: 400;
+    white-space: nowrap;
+    flex-shrink: 0;
+    display: inline-block;
+    line-height: 24px;
+    overflow: visible;
+    min-width: fit-content;
+}
+
+/* ===== 输入字段 / Input Field ===== */
+.input-field {
+    display: flex;
+    flex-direction: column;
+}
+
+.input-field label {
+    font-size: 13px;
+    font-weight: 500;
+    color: #64748b;
+    margin-bottom: 8px;
+}
+
+.input-field input {
+    padding: 12px 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    background: white;
+    transition: all 0.2s;
+    height: 44px;
+    width: 100%;
+}
+
+.input-field.visible {
+    display: flex;
+}
+
+.input-field.hidden {
+    display: none;
+}
+
+.input-field input:focus {
+    outline: none;
+    border-color: #3c96ca;
+    box-shadow: 0 0 0 3px rgba(60, 150, 202, 0.1);
+}
+
+.input-field input::placeholder {
+    color: #cbd5e0;
+}
+
+.input-field.optional input:not(:focus) {
+    background: #f8fafc;
+}
+
+/* ===== 分段控制器 / Segmented Control ===== */
+.segmented-control {
+    display: flex;
+    background: #f1f5f9;
+    border-radius: 8px;
+    padding: 4px;
+    gap: 4px;
+}
+
+.segment {
+    position: relative;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    padding: 0;
+    font: inherit;
+}
+
+.segment span,
+.segment {
+    display: block;
+    padding: 6px 16px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #64748b;
+    border-radius: 6px;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.segment:hover {
+    color: #374151;
+}
+
+.segment.active {
+    background: white;
+    color: #3c96ca;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* ===== 表单操作 / Form Actions ===== */
+.form-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 24px;
+    border-top: 1px solid #e2e8f0;
+    gap: 16px;
+    position: relative;
+}
+
+.center-actions {
+    display: flex;
+    gap: 12px;
+    margin: 0 auto;
+}
+
+/* 删除按钮 - 紧贴容器右上角 */
+.command-item-main .btn-remove {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.command-item-main .btn-remove:hover {
+    background: rgba(239, 68, 68, 0.1);
+}

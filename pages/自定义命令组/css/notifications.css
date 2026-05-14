@@ -1,0 +1,118 @@
+/* ===== Toast 提示 - Material 风格 ===== */
+.toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 14px 24px;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 200;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    pointer-events: none;
+    display: none;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+    display: block;
+}
+
+.toast.hide {
+    opacity: 0;
+    transform: translateY(20px);
+    pointer-events: none;
+}
+
+.toast.success {
+    background: white;
+    color: #00c853;
+    border: 1px solid rgba(0, 200, 83, 0.3);
+    box-shadow: 0 4px 12px rgba(0, 200, 83, 0.1);
+}
+
+.toast.error {
+    background: white;
+    color: #f44336;
+    border: 1px solid rgba(244, 67, 54, 0.3);
+    box-shadow: 0 4px 12px rgba(244, 67, 54, 0.1);
+}
+
+/* ===== 确认对话框 / Confirm Dialog ===== */
+.confirm-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 300;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.confirm-dialog.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.confirm-dialog-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.confirm-dialog.visible .confirm-dialog-overlay {
+    opacity: 1;
+}
+
+.confirm-dialog-content {
+    position: relative;
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    min-width: 320px;
+    max-width: 400px;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+    opacity: 0;
+    transform: scale(0.95);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.confirm-dialog.visible .confirm-dialog-content {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.confirm-dialog-content h4 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1b1c1d;
+    margin: 0 0 12px 0;
+}
+
+.confirm-dialog-content p {
+    font-size: 14px;
+    color: #64748b;
+    margin: 0 0 20px 0;
+    line-height: 1.5;
+}
+
+.confirm-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}

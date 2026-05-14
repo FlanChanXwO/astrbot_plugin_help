@@ -1,0 +1,6 @@
+name: astrbot_plugin_help
+display_name: 帮助
+desc: 获取插件帮助信息
+version: v1.0.0
+author: FlanChanXwO
+repo: https://github.com/FlanChanXwO/astrbot_plugin_help

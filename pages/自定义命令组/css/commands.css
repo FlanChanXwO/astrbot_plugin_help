@@ -1,0 +1,213 @@
+/* ===== 命令列表区域 / Commands Section ===== */
+.commands-section {
+    background: #f8fafc;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 24px 0;
+    border: 1px solid #e2e8f0;
+}
+
+.commands-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* ===== 命令项 / Command Item ===== */
+.command-item {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 16px;
+}
+
+/* ===== 命令项新布局 / Command Item Layout ===== */
+.command-item-main {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    margin-bottom: 16px;
+}
+
+.command-inputs {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.command-inputs.regex-mode .name-field {
+    opacity: 0.7;
+}
+
+.command-inputs.regex-mode .name-field input {
+    background: #f1f5f9;
+}
+
+.command-inputs.regex-mode .pattern-field input {
+    background: #fff;
+    border-color: #3c96ca;
+}
+
+.command-item-options {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #f1f5f9;
+}
+
+.trigger-type-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.trigger-type-wrapper > label {
+    font-size: 12px;
+    font-weight: 500;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* ===== 标签输入 / Tag Input ===== */
+.tags-input-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.tags-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.tags-list:empty {
+    display: none;
+}
+
+.tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: #e0f2fe;
+    color: #0369a1;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.tag-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    background: rgba(3, 105, 161, 0.2);
+    color: #0369a1;
+    border: none;
+    border-radius: 50%;
+    font-size: 10px;
+    cursor: pointer;
+    line-height: 1;
+    transition: all 0.15s ease;
+}
+
+.tag-remove:hover {
+    background: #0369a1;
+    color: white;
+}
+
+.tag-input {
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 13px;
+    transition: all 0.15s ease;
+}
+
+.tag-input:focus {
+    outline: none;
+    border-color: #3c96ca;
+    box-shadow: 0 0 0 3px rgba(60, 150, 202, 0.1);
+}
+
+.tag-input::placeholder {
+    color: #94a3b8;
+}
+
+/* 3列网格布局 - 展开面板时启用 */
+.commands-list.grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+}
+
+/* 展开面板下命令项自适应 */
+.edit-panel.expanded .command-item {
+    min-width: 0;
+    overflow: hidden;
+}
+
+.edit-panel.expanded .command-item-main {
+    min-width: 0;
+}
+
+.edit-panel.expanded .command-inputs {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+}
+
+.edit-panel.expanded .command-inputs input,
+.edit-panel.expanded .tag-input {
+    min-width: 0;
+}
+
+.edit-panel.expanded .command-item-options {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.edit-panel.expanded .checkbox-group-inline {
+    flex-wrap: wrap;
+}
+
+.edit-panel.expanded .segment {
+    white-space: normal;
+    text-align: center;
+}
+
+/* 子命令/示例区域 */
+.sub-commands-section,
+.examples-section {
+    margin-top: 8px;
+}
+
+.sub-commands-section > label,
+.examples-section > label {
+    display: block;
+    font-size: 12px;
+    color: #64748b;
+    margin-bottom: 4px;
+}
+
+/* ===== 命令类型选择器 / Trigger Type Select ===== */
+.trigger-type-select {
+    position: relative;
+}
+
+.trigger-type-select select {
+    appearance: none;
+    padding-right: 32px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    cursor: pointer;
+}
