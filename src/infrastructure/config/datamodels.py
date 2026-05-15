@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ...shared.constants import DefaultCFG
 
@@ -31,6 +31,30 @@ class RenderingConfig(BaseModel):
     render_image_timeout: int = Field(
         default=5000, description="单张图片加载超时（毫秒）"
     )
+
+    @field_validator("max_concurrent_tasks")
+    @classmethod
+    def validate_max_concurrent_tasks(cls, v: int) -> int:
+        """验证并限制并发渲染数在合理范围内"""
+        MIN_CONCURRENT_TASKS = 1  # 最小值防止阻塞
+        MAX_CONCURRENT_TASKS = 20  # 最大值防止过载
+        if v < MIN_CONCURRENT_TASKS:
+            raise ValueError(
+                f"max_concurrent_tasks must be at least {MIN_CONCURRENT_TASKS} to prevent blocking"
+            )
+        if v > MAX_CONCURRENT_TASKS:
+            raise ValueError(
+                f"max_concurrent_tasks must be at most {MAX_CONCURRENT_TASKS} to prevent overload"
+            )
+        return v
+
+    @field_validator("render_wait_timeout", "render_image_timeout")
+    @classmethod
+    def validate_timeouts(cls, v: int) -> int:
+        """验证超时配置为正数"""
+        if v <= 0:
+            raise ValueError("Timeout values must be positive integers")
+        return v
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> RenderingConfig:

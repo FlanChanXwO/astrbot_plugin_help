@@ -14,9 +14,48 @@ from ..utils.paths import get_plugin_dir
 
 logger = get_logger()
 
-# Configuration constants for max_concurrent_tasks validation
-MIN_CONCURRENT_TASKS = 1  # Minimum to prevent blocking
-MAX_CONCURRENT_TASKS = 20  # Maximum to prevent overload
+# JavaScript function for waiting on fonts and images to load
+# Extracted to constant for better maintainability and readability
+WAIT_FOR_RESOURCES_JS = """
+async (timeoutMs) => {
+    try {
+        // 等待字体加载（如果浏览器支持 document.fonts）
+        if (document.fonts && document.fonts.ready) {
+            await document.fonts.ready;
+        }
+    } catch (e) {
+        // 忽略字体等待失败，避免整个渲染流程崩溃
+    }
+
+    const images = Array.from(document.images || []);
+    if (images.length === 0) {
+        return true;
+    }
+
+    // 等待所有图片加载完成或失败，并对单张图片设置超时时间
+    await Promise.all(
+        images.map((img) => {
+            if (img.complete) {
+                return Promise.resolve();
+            }
+            return new Promise((resolve) => {
+                const done = () => {
+                    img.removeEventListener('load', done);
+                    img.removeEventListener('error', done);
+                    resolve();
+                };
+                img.addEventListener('load', done, { once: true });
+                img.addEventListener('error', done, { once: true });
+
+                // 使用传入的超时时间参数，而不是硬编码的值
+                setTimeout(done, timeoutMs);
+            });
+        })
+    );
+
+    return true;
+}
+"""
 
 
 class HTMLHelpRenderer:
@@ -36,20 +75,11 @@ class HTMLHelpRenderer:
         self.template_manager = HTMLTemplateManager()
 
         # 渲染信号量：支持并发渲染以提高性能
-        # 验证并限制并发数，防止配置错误导致系统过载
-        max_concurrent = self.config.rendering.max_concurrent_tasks
-        if max_concurrent < MIN_CONCURRENT_TASKS:
-            logger.warning(
-                f"max_concurrent_tasks is {max_concurrent}, clamping to {MIN_CONCURRENT_TASKS} to prevent blocking"
-            )
-            max_concurrent = MIN_CONCURRENT_TASKS
-        elif max_concurrent > MAX_CONCURRENT_TASKS:
-            logger.warning(
-                f"max_concurrent_tasks is {max_concurrent}, clamping to {MAX_CONCURRENT_TASKS} to prevent overload"
-            )
-            max_concurrent = MAX_CONCURRENT_TASKS
-
-        self._render_semaphore = asyncio.Semaphore(max_concurrent)
+        # 配置验证已在 RenderingConfig 模型中通过 Pydantic 验证器处理
+        # 这里直接使用配置值，无需额外的运行时检查
+        self._render_semaphore = asyncio.Semaphore(
+            self.config.rendering.max_concurrent_tasks
+        )
 
         # Playwright 浏览器实例（延迟初始化）
         self._browser = None
@@ -231,49 +261,10 @@ class HTMLHelpRenderer:
 
             # 等待字体和图片加载：使用 DOM 信号而不是固定延迟，减少在慢环境中的不稳定性
             # 这比固定延迟更可靠，能够根据实际资源加载情况动态调整
+            # 将超时时间作为参数传入，而不是在 JS 字符串中拼接，提升可读性和可维护性
             await page.wait_for_function(
-                """
-                async () => {
-                    try {
-                        // 等待字体加载（如果浏览器支持 document.fonts）
-                        if (document.fonts && document.fonts.ready) {
-                            await document.fonts.ready;
-                        }
-                    } catch (e) {
-                        // 忽略字体等待失败，避免整个渲染流程崩溃
-                    }
-
-                    const images = Array.from(document.images || []);
-                    if (images.length === 0) {
-                        return true;
-                    }
-
-                    // 等待所有图片加载完成或失败，并对单张图片设置超时时间
-                    await Promise.all(
-                        images.map((img) => {
-                            if (img.complete) {
-                                return Promise.resolve();
-                            }
-                            return new Promise((resolve) => {
-                                const done = () => {
-                                    img.removeEventListener('load', done);
-                                    img.removeEventListener('error', done);
-                                    resolve();
-                                };
-                                img.addEventListener('load', done, { once: true });
-                                img.addEventListener('error', done, { once: true });
-
-                                // 防止极端情况下一直不返回
-                                setTimeout(done, """
-                + str(self.config.rendering.render_image_timeout)
-                + """);
-                            });
-                        })
-                    );
-
-                    return true;
-                }
-                """,
+                WAIT_FOR_RESOURCES_JS,
+                arg=self.config.rendering.render_image_timeout,
                 timeout=self.config.rendering.render_wait_timeout,
             )
 

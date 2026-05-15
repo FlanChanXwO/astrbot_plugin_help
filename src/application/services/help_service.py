@@ -62,6 +62,9 @@ class HelpService:
 
         # Internal state
         self._last_error: str | None = None
+        self._cache_warmup_task: asyncio.Task[None] | None = (
+            None  # Track background task for clean shutdown
+        )
 
     async def initialize(self):
         """Initialize service"""
@@ -86,12 +89,25 @@ class HelpService:
                 )
 
         # Start cache warm-up in background without blocking initialization
-        asyncio.create_task(_warm_up_cache())
+        # Store task reference for clean shutdown in terminate()
+        self._cache_warmup_task = asyncio.create_task(_warm_up_cache())
 
         logger.info("Initialization completed")
 
     async def terminate(self):
         """Terminate service"""
+        try:
+            # Cancel background cache warm-up task if still running
+            if self._cache_warmup_task and not self._cache_warmup_task.done():
+                logger.debug("Cancelling cache warm-up task during shutdown...")
+                self._cache_warmup_task.cancel()
+                try:
+                    await asyncio.shield(self._cache_warmup_task)
+                except asyncio.CancelledError:
+                    logger.debug("Cache warm-up task cancelled successfully")
+        except Exception as exc:
+            logger.warning(f"Failed to cancel cache warm-up task: {exc}")
+
         try:
             await self.renderer.close()
         except Exception as exc:

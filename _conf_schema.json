@@ -101,11 +101,11 @@
         "type": "int",
         "slider": {
           "min": 1,
-          "max": 10,
+          "max": 20,
           "step": 1
         },
         "default": 2,
-        "hint": "同时进行的渲染任务数量限制，根据 CPU 调整"
+        "hint": "同时进行的渲染任务数量限制 (1-20)，根据 CPU 调整"
       },
       "giant_threshold": {
         "description": "巨型块阈值 (pt)",
