@@ -31,8 +31,8 @@ class HTMLHelpRenderer:
         self.plugin_dir = get_plugin_dir()
         self.template_manager = HTMLTemplateManager()
 
-        # 渲染信号量：同一时间只允许一个渲染任务
-        self._render_semaphore = asyncio.Semaphore(1)
+        # 渲染信号量：支持并发渲染以提高性能
+        self._render_semaphore = asyncio.Semaphore(self.config.rendering.max_concurrent_tasks)
 
         # Playwright 浏览器实例（延迟初始化）
         self._browser = None
@@ -212,8 +212,8 @@ class HTMLHelpRenderer:
             # 设置页面内容
             await page.set_content(html_content, wait_until="networkidle")
 
-            # 等待字体和图片加载
-            await page.wait_for_timeout(500)
+            # 等待字体和图片加载（优化：减少固定等待时间）
+            await page.wait_for_timeout(200)
 
             # 获取页面实际高度
             page_height = await page.evaluate("document.body.scrollHeight")
