@@ -27,6 +27,10 @@ class RenderingConfig(BaseModel):
     jpeg_quality: int = Field(default=95, description="JPEG图片质量")
     html_theme: str = Field(default="simple", description="HTML主题")
     use_t2i: bool = Field(default=False, description="使用AstrBot内置t2i渲染")
+    render_wait_timeout: int = Field(default=10000, description="渲染等待超时（毫秒）")
+    render_image_timeout: int = Field(
+        default=5000, description="单张图片加载超时（毫秒）"
+    )
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> RenderingConfig:

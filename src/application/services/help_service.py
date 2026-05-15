@@ -5,6 +5,7 @@ Coordinates all infrastructure to complete business use cases.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -68,14 +69,24 @@ class HelpService:
 
         # Warm up cache: build command index JSON without rendering images
         # Images will be lazily generated on first help menu request
-        try:
-            logger.debug("Building command index cache...")
-            self.command_index.get_all_commands()
-            logger.debug("Command index cache initialized successfully")
-        except Exception:
-            logger.exception(
-                "Failed to build command index cache during initialization"
-            )
+        # Use background task to avoid blocking plugin initialization
+        async def _warm_up_cache():
+            try:
+                logger.debug("Building command index cache...")
+                self.command_index.get_all_commands()
+                logger.debug("Command index cache initialized successfully")
+            except asyncio.CancelledError:
+                # Re-raise cancellation to ensure plugin shutdown is not blocked
+                logger.debug("Cache warm-up cancelled during initialization")
+                raise
+            except Exception:
+                # Log other exceptions but don't fail initialization
+                logger.exception(
+                    "Failed to build command index cache during initialization"
+                )
+
+        # Start cache warm-up in background without blocking initialization
+        asyncio.create_task(_warm_up_cache())
 
         logger.info("Initialization completed")
 
