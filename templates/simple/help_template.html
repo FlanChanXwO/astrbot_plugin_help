@@ -317,7 +317,7 @@
     {% for plugin in plugins %}
     <div class="plugin-card">
         <div class="plugin-header">
-            <div class="plugin-name">{{ plugin.display_name or plugin.name }}</div>
+            <div class="plugin-name">@{{ plugin.display_name or plugin.name }}</div>
             <div class="plugin-meta">
                 {% if plugin.version %}
                 <span class="plugin-version">{{ plugin.version }}</span>
