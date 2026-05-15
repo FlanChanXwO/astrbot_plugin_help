@@ -37,7 +37,7 @@
 1. 克隆本仓库到 AstrBot 的插件目录：
    ```bash
    cd AstrBot/data/plugins
-   git clone https://github.com/FlanChanXwO/astrbot_plugin_help.git
+   git clone https://github.com/FlanChanXwO/astrbot_plugin_helpinfo.git
    ```
 
 2. 安装依赖：
