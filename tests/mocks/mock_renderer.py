@@ -21,12 +21,14 @@ class MockHtmlRenderer:
         prefixes: list[str] | None = None,
     ) -> list[str]:
         """模拟渲染."""
-        self.render_calls.append({
-            "plugins": plugins,
-            "output_path": output_path,
-            "title": title,
-            "prefixes": prefixes,
-        })
+        self.render_calls.append(
+            {
+                "plugins": plugins,
+                "output_path": output_path,
+                "title": title,
+                "prefixes": prefixes,
+            }
+        )
         # 返回模拟的图片路径
         return [str(output_path)] if output_path else ["/tmp/test_help.jpg"]
 

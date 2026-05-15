@@ -136,7 +136,7 @@ class HelpPlugin(Star):
         # 自动检测用户权限
         if permission_filter == "auto":
             # 判断用户是否为管理员
-            is_admin = event.is_admin() if hasattr(event, 'is_admin') else False
+            is_admin = event.is_admin() if hasattr(event, "is_admin") else False
             if is_admin:
                 permission_filter = "all"  # 管理员可以看到所有命令
             else:
@@ -189,31 +189,38 @@ class HelpPlugin(Star):
                 commands = []
                 for c in g.commands:
                     if c.type == "regex":
-                        commands.append({
-                            "type": "regex",
-                            "pattern": c.pattern,
-                            "examples": c.examples,
-                            "is_admin": c.is_admin,
-                            "hidden": c.hidden,
-                        })
+                        commands.append(
+                            {
+                                "type": "regex",
+                                "pattern": c.pattern,
+                                "examples": c.examples,
+                                "is_admin": c.is_admin,
+                                "hidden": c.hidden,
+                            }
+                        )
                     else:
-                        commands.append({
-                            "type": "command",
-                            "command": c.command,
-                            "aliases": c.aliases,
-                            "is_admin": c.is_admin,
-                            "hidden": c.hidden,
-                        })
-                groups.append({
-                    "group_name": g.group_name,
-                    "description": g.description,
-                    "priority": g.priority,
-                    "hidden": g.hidden,
-                    "commands": commands,
-                })
+                        commands.append(
+                            {
+                                "type": "command",
+                                "command": c.command,
+                                "aliases": c.aliases,
+                                "is_admin": c.is_admin,
+                                "hidden": c.hidden,
+                            }
+                        )
+                groups.append(
+                    {
+                        "group_name": g.group_name,
+                        "description": g.description,
+                        "priority": g.priority,
+                        "hidden": g.hidden,
+                        "commands": commands,
+                    }
+                )
             return jsonify({"success": True, "data": groups})
         except Exception as e:
             import traceback
+
             print(f"api_get_custom_groups error: {e}")
             traceback.print_exc()
             return jsonify({"success": False, "error": str(e)}), 500
@@ -224,7 +231,9 @@ class HelpPlugin(Star):
             data = await request.get_json()
             print(f"[api_create_custom_group] Received data: {data}")
             if not data or not data.get("group_name"):
-                return jsonify({"success": False, "error": "Group name is required"}), 400
+                return jsonify(
+                    {"success": False, "error": "Group name is required"}
+                ), 400
 
             cfg = get_config()
             custom_groups = list(cfg.custom_groups)  # Copy current groups
@@ -232,7 +241,9 @@ class HelpPlugin(Star):
             # Check for duplicate names
             for g in custom_groups:
                 if g.group_name == data["group_name"]:
-                    return jsonify({"success": False, "error": "Group name already exists"}), 400
+                    return jsonify(
+                        {"success": False, "error": "Group name already exists"}
+                    ), 400
 
             # Build commands list
             commands = []
@@ -252,20 +263,29 @@ class HelpPlugin(Star):
                             )
                         )
                     else:
-                        return jsonify({"success": False, "error": "Regex command requires 'pattern' field"}), 400
+                        return jsonify(
+                            {
+                                "success": False,
+                                "error": "Regex command requires 'pattern' field",
+                            }
+                        ), 400
                 else:
                     # Command type: command or aliases is required
                     cmd_name = cmd.get("command", "").strip()
                     aliases = cmd.get("aliases", [])
 
                     if not cmd_name and not aliases:
-                        return jsonify({
-                            "success": False,
-                            "error": "Command must have either 'command' or 'aliases' field"
-                        }), 400
+                        return jsonify(
+                            {
+                                "success": False,
+                                "error": "Command must have either 'command' or 'aliases' field",
+                            }
+                        ), 400
 
                     sub_commands = cmd.get("sub_commands", [])
-                    print(f"[api_create_custom_group] Command '{cmd_name or aliases[0]}' sub_commands: {sub_commands}")
+                    print(
+                        f"[api_create_custom_group] Command '{cmd_name or aliases[0]}' sub_commands: {sub_commands}"
+                    )
                     commands.append(
                         CustomGroupCommand(
                             type="command",
@@ -284,7 +304,9 @@ class HelpPlugin(Star):
                 hidden=data.get("hidden", False),
                 commands=commands,
             )
-            print(f"[api_create_custom_group] Created group with commands: {[{'cmd': c.command, 'sub': c.sub_commands} for c in commands]}")
+            print(
+                f"[api_create_custom_group] Created group with commands: {[{'cmd': c.command, 'sub': c.sub_commands} for c in commands]}"
+            )
 
             custom_groups.append(new_group)
 
@@ -299,7 +321,9 @@ class HelpPlugin(Star):
 
             # Save to storage (best-effort, in-memory state is already consistent)
             if not save_custom_groups_to_storage(custom_groups):
-                return jsonify({"success": False, "error": "Failed to save to storage"}), 500
+                return jsonify(
+                    {"success": False, "error": "Failed to save to storage"}
+                ), 500
 
             return jsonify({"success": True})
         except Exception as e:
@@ -310,7 +334,9 @@ class HelpPlugin(Star):
         try:
             data = await request.get_json()
             if not data or "index" not in data:
-                return jsonify({"success": False, "error": "Group index is required"}), 400
+                return jsonify(
+                    {"success": False, "error": "Group index is required"}
+                ), 400
 
             index = data["index"]
             group_data = data.get("group", {})
@@ -324,7 +350,9 @@ class HelpPlugin(Star):
             # Check for duplicate names (excluding current index)
             for i, g in enumerate(custom_groups):
                 if i != index and g.group_name == group_data.get("group_name"):
-                    return jsonify({"success": False, "error": "Group name already exists"}), 400
+                    return jsonify(
+                        {"success": False, "error": "Group name already exists"}
+                    ), 400
 
             # Build commands list
             commands = []
@@ -344,20 +372,29 @@ class HelpPlugin(Star):
                             )
                         )
                     else:
-                        return jsonify({"success": False, "error": "Regex command requires 'pattern' field"}), 400
+                        return jsonify(
+                            {
+                                "success": False,
+                                "error": "Regex command requires 'pattern' field",
+                            }
+                        ), 400
                 else:
                     # Command type: command or aliases is required
                     cmd_name = cmd.get("command", "").strip()
                     aliases = cmd.get("aliases", [])
 
                     if not cmd_name and not aliases:
-                        return jsonify({
-                            "success": False,
-                            "error": "Command must have either 'command' or 'aliases' field"
-                        }), 400
+                        return jsonify(
+                            {
+                                "success": False,
+                                "error": "Command must have either 'command' or 'aliases' field",
+                            }
+                        ), 400
 
                     sub_commands = cmd.get("sub_commands", [])
-                    print(f"[api_update_custom_group] Command '{cmd_name or aliases[0]}' sub_commands: {sub_commands}")
+                    print(
+                        f"[api_update_custom_group] Command '{cmd_name or aliases[0]}' sub_commands: {sub_commands}"
+                    )
                     commands.append(
                         CustomGroupCommand(
                             type="command",
@@ -388,7 +425,9 @@ class HelpPlugin(Star):
 
             # Save to storage (best-effort, in-memory state is already consistent)
             if not save_custom_groups_to_storage(custom_groups):
-                return jsonify({"success": False, "error": "Failed to save to storage"}), 500
+                return jsonify(
+                    {"success": False, "error": "Failed to save to storage"}
+                ), 500
 
             return jsonify({"success": True})
         except Exception as e:
@@ -399,7 +438,9 @@ class HelpPlugin(Star):
         try:
             data = await request.get_json()
             if not data or "index" not in data:
-                return jsonify({"success": False, "error": "Group index is required"}), 400
+                return jsonify(
+                    {"success": False, "error": "Group index is required"}
+                ), 400
 
             index = data["index"]
 
@@ -422,7 +463,9 @@ class HelpPlugin(Star):
 
             # Save to storage (best-effort, in-memory state is already consistent)
             if not save_custom_groups_to_storage(custom_groups):
-                return jsonify({"success": False, "error": "Failed to save to storage"}), 500
+                return jsonify(
+                    {"success": False, "error": "Failed to save to storage"}
+                ), 500
 
             return jsonify({"success": True})
         except Exception as e:

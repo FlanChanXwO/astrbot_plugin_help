@@ -14,12 +14,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # 添加项目路径
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 
 @dataclass
 class MockCommandEntry:
     """模拟命令条目"""
+
     command: str
     description: str = ""
     plugin: str = "test_plugin"
@@ -47,6 +48,7 @@ class MockCommandEntry:
 @dataclass
 class MockPluginSummary:
     """模拟插件摘要"""
+
     plugin: str
     commands: list[Any]
     plugin_display_name: str | None = None
@@ -57,6 +59,7 @@ class MockPluginSummary:
 @dataclass
 class MockCustomGroupCommand:
     """模拟自定义组命令配置"""
+
     command_name: str
     pattern: str = ""
     type: str = "command"
@@ -67,6 +70,7 @@ class MockCustomGroupCommand:
 @dataclass
 class MockCustomGroupConfig:
     """模拟自定义组配置"""
+
     group_name: str
     description: str = ""
     commands: list[MockCustomGroupCommand] = field(default_factory=list)
@@ -79,6 +83,7 @@ class MockCustomGroupConfig:
 
 class MockConfig:
     """模拟配置"""
+
     def __init__(self):
         self.custom_groups: list[MockCustomGroupConfig] = []
 
@@ -100,13 +105,13 @@ class TestSearchWithCustomGroups:
             command="/help",
             description="显示帮助",
             plugin="astrbot_plugin_helpinfo",
-            custom_groups=["常用命令"]
+            custom_groups=["常用命令"],
         )
         cmd2 = MockCommandEntry(
             command="/status",
             description="查看状态",
             plugin="astrbot_plugin_status",
-            custom_groups=["常用命令"]
+            custom_groups=["常用命令"],
         )
         cmd3 = MockCommandEntry(
             command="/setu",
@@ -114,13 +119,13 @@ class TestSearchWithCustomGroups:
             plugin="astrbot_plugin_setu",
             pattern=r"^来.*色图$",
             type="regex",
-            custom_groups=["娱乐命令"]
+            custom_groups=["娱乐命令"],
         )
         cmd4 = MockCommandEntry(
             command="/admin",
             description="管理员命令",
             plugin="astrbot_plugin_admin",
-            tag="admin"
+            tag="admin",
         )
 
         # 添加到命令字典
@@ -136,14 +141,14 @@ class TestSearchWithCustomGroups:
             commands=[
                 MockCustomGroupCommand(command_name="help"),
                 MockCustomGroupCommand(command_name="status"),
-            ]
+            ],
         )
         group2 = MockCustomGroupConfig(
             group_name="娱乐命令",
             description="娱乐命令组",
             commands=[
                 MockCustomGroupCommand(command_name="setu", type="regex"),
-            ]
+            ],
         )
 
         self.config.add_group(group1)
@@ -181,12 +186,12 @@ class TestSearchWithCustomGroups:
 
         # 验证是否找到 help 命令
         assert len(results) >= 1
-        assert any(r['command'] == '/help' for r in results)
+        assert any(r["command"] == "/help" for r in results)
 
         # 验证 custom_groups 字段
-        help_cmd = next(r for r in results if r['command'] == '/help')
+        help_cmd = next(r for r in results if r["command"] == "/help")
         print(f"custom_groups: {help_cmd.get('custom_groups', [])}")
-        assert "常用命令" in help_cmd.get('custom_groups', [])
+        assert "常用命令" in help_cmd.get("custom_groups", [])
 
         print("[OK] 测试通过")
 
@@ -202,7 +207,7 @@ class TestSearchWithCustomGroups:
 
         # 验证是否找到 setu 命令（通过 pattern 匹配）
         assert len(results) >= 1
-        assert any('色图' in r.get('pattern', '') for r in results if r.get('pattern'))
+        assert any("色图" in r.get("pattern", "") for r in results if r.get("pattern"))
 
         print("[OK] 测试通过")
 
@@ -223,7 +228,7 @@ class TestSearchWithCustomGroups:
             print(f"自定义组: {detail.get('custom_groups', [])}")
 
             # 验证 custom_groups 字段
-            assert "常用命令" in detail.get('custom_groups', [])
+            assert "常用命令" in detail.get("custom_groups", [])
         else:
             print("[WARN] 未找到命令详情")
 
@@ -272,7 +277,9 @@ class TestSearchWithCustomGroups:
             searchable_name = cmd_name.lower().lstrip("/")
             if keyword_lower in searchable_name:
                 results.append(cmd_info)
-            elif cmd_info.get("pattern") and keyword_lower in cmd_info["pattern"].lower():
+            elif (
+                cmd_info.get("pattern") and keyword_lower in cmd_info["pattern"].lower()
+            ):
                 results.append(cmd_info)
             elif keyword_lower in cmd_info.get("description", "").lower():
                 results.append(cmd_info)
@@ -283,7 +290,9 @@ class TestSearchWithCustomGroups:
         for cmd_info in self.all_commands.values():
             if cmd_info in results:
                 continue
-            if any(keyword_lower in g.lower() for g in cmd_info.get("custom_groups", [])):
+            if any(
+                keyword_lower in g.lower() for g in cmd_info.get("custom_groups", [])
+            ):
                 results.append(cmd_info)
             if len(results) >= limit:
                 return results[:limit]

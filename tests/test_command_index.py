@@ -84,6 +84,7 @@ class TestTestPatterns:
     def test_all_patterns_are_valid_regex(self):
         """测试所有测试模式都是有效的正则."""
         import re
+
         patterns = MockDataFactory.get_test_patterns()
 
         for name, pattern in patterns.items():

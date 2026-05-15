@@ -60,6 +60,7 @@ class HTMLHelpRenderer:
                 logger.debug("Playwright 浏览器已启动")
             except ImportError as e:
                 from ...domain.exceptions import RenderError
+
                 raise RenderError(
                     "Playwright 未安装，无法使用浏览器渲染。"
                     "请运行 'pip install playwright' 和 'playwright install' 安装，"
@@ -67,6 +68,7 @@ class HTMLHelpRenderer:
                 ) from e
             except Exception as e:
                 from ...domain.exceptions import RenderError
+
                 raise RenderError(
                     f"Playwright 浏览器启动失败: {str(e)}。"
                     f"请运行 'playwright install' 安装浏览器，"
@@ -129,6 +131,7 @@ class HTMLHelpRenderer:
             except Exception as e:
                 logger.error(f"HTML 渲染失败: {e}", exc_info=True)
                 from ...domain.exceptions import RenderError
+
                 raise RenderError(f"HTML 渲染失败: {str(e)}")
 
     async def _render_with_t2i(self, html_content: str) -> bytes:
@@ -144,6 +147,7 @@ class HTMLHelpRenderer:
             from astrbot.core import html_renderer
         except ImportError:
             from ...domain.exceptions import RenderError
+
             raise RenderError(
                 "无法导入 AstrBot t2i 服务。请确保使用 AstrBot v4.5.0+ 版本，"
                 "或在插件配置中关闭 use_t2i 使用 Playwright 渲染"
@@ -168,11 +172,13 @@ class HTMLHelpRenderer:
                 return Path(result_path).read_bytes()
             else:
                 from ...domain.exceptions import RenderError
+
                 raise RenderError(f"t2i 服务返回未知类型: {type(result_path)}")
 
         except Exception as e:
             logger.error(f"t2i 渲染失败: {e}", exc_info=True)
             from ...domain.exceptions import RenderError
+
             raise RenderError(
                 f"t2i 渲染失败: {str(e)}\n"
                 f"请确保 AstrBot 已正确启动并启用 t2i 服务，\n"
@@ -193,6 +199,7 @@ class HTMLHelpRenderer:
         # 如果浏览器为 None（说明 t2i 模式已启用），不应调用此方法
         if browser is None:
             from ...domain.exceptions import RenderError
+
             raise RenderError(
                 "Playwright 渲染不可用：当前配置已开启 use_t2i，"
                 "请确保 t2i 服务可用，或关闭 use_t2i 配置以使用 Playwright 渲染"

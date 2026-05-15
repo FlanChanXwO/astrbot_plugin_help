@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 @dataclass
 class MockCommandEntry:
     """模拟命令条目."""
+
     command: str
     description: str = ""
     plugin: str = "test_plugin"
@@ -31,6 +32,7 @@ class MockCommandEntry:
 @dataclass
 class MockPluginSummary:
     """模拟插件摘要."""
+
     plugin: str
     plugin_display_name: str | None = None
     plugin_version: str = ""

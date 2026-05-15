@@ -42,7 +42,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from src.domain.entities.command import CommandEntry
-from src.domain.entities.plugin import PluginCommandSummary, RenderNode
+from src.domain.entities.plugin import RenderNode
 from src.infrastructure import context_holder
 from src.infrastructure.analysis.analyzers import CommandAnalyzer
 import src.infrastructure.config.config_manager as _cm
@@ -69,10 +69,26 @@ class TestCommandSorting:
         """普通命令应排在正则命令之前。"""
         analyzer = _make_analyzer()
         commands = [
-            CommandEntry(command="/regex1", description="", plugin="p", type="regex", pattern="^r1$"),
-            CommandEntry(command="/normal2", description="", plugin="p", type="command"),
-            CommandEntry(command="/normal1", description="", plugin="p", type="command"),
-            CommandEntry(command="/regex2", description="", plugin="p", type="regex", pattern="^r2$"),
+            CommandEntry(
+                command="/regex1",
+                description="",
+                plugin="p",
+                type="regex",
+                pattern="^r1$",
+            ),
+            CommandEntry(
+                command="/normal2", description="", plugin="p", type="command"
+            ),
+            CommandEntry(
+                command="/normal1", description="", plugin="p", type="command"
+            ),
+            CommandEntry(
+                command="/regex2",
+                description="",
+                plugin="p",
+                type="regex",
+                pattern="^r2$",
+            ),
         ]
         tree = analyzer._build_plugin_command_tree(commands)
         names = [node.name for node in tree]
@@ -82,10 +98,30 @@ class TestCommandSorting:
         """命令组应排在独立命令之后。"""
         analyzer = _make_analyzer()
         commands = [
-            CommandEntry(command="/group1", description="", plugin="p", type="group", group_name="group1"),
-            CommandEntry(command="/normal1", description="", plugin="p", type="command"),
-            CommandEntry(command="/regex1", description="", plugin="p", type="regex", pattern="^r1$"),
-            CommandEntry(command="/group1/sub1", description="", plugin="p", type="command", group_name="group1"),
+            CommandEntry(
+                command="/group1",
+                description="",
+                plugin="p",
+                type="group",
+                group_name="group1",
+            ),
+            CommandEntry(
+                command="/normal1", description="", plugin="p", type="command"
+            ),
+            CommandEntry(
+                command="/regex1",
+                description="",
+                plugin="p",
+                type="regex",
+                pattern="^r1$",
+            ),
+            CommandEntry(
+                command="/group1/sub1",
+                description="",
+                plugin="p",
+                type="command",
+                group_name="group1",
+            ),
         ]
         tree = analyzer._build_plugin_command_tree(commands)
         assert len(tree) == 3
@@ -97,9 +133,28 @@ class TestCommandSorting:
         """分组内部的子命令也应满足普通 -> 正则。"""
         analyzer = _make_analyzer()
         commands = [
-            CommandEntry(command="/group1", description="", plugin="p", type="group", group_name="group1"),
-            CommandEntry(command="/group1/regex1", description="", plugin="p", type="regex", pattern="^r1$", group_name="group1"),
-            CommandEntry(command="/group1/normal1", description="", plugin="p", type="command", group_name="group1"),
+            CommandEntry(
+                command="/group1",
+                description="",
+                plugin="p",
+                type="group",
+                group_name="group1",
+            ),
+            CommandEntry(
+                command="/group1/regex1",
+                description="",
+                plugin="p",
+                type="regex",
+                pattern="^r1$",
+                group_name="group1",
+            ),
+            CommandEntry(
+                command="/group1/normal1",
+                description="",
+                plugin="p",
+                type="command",
+                group_name="group1",
+            ),
         ]
         tree = analyzer._build_plugin_command_tree(commands)
         group = tree[0]
@@ -111,9 +166,23 @@ class TestCommandSorting:
         """单命令分组扁平化后应按其真实类型排序。"""
         analyzer = _make_analyzer()
         commands = [
-            CommandEntry(command="/group1", description="", plugin="p", type="group", group_name="group1"),
-            CommandEntry(command="/group1", description="", plugin="p", type="command", group_name="group1"),
-            CommandEntry(command="/normal1", description="", plugin="p", type="command"),
+            CommandEntry(
+                command="/group1",
+                description="",
+                plugin="p",
+                type="group",
+                group_name="group1",
+            ),
+            CommandEntry(
+                command="/group1",
+                description="",
+                plugin="p",
+                type="command",
+                group_name="group1",
+            ),
+            CommandEntry(
+                command="/normal1", description="", plugin="p", type="command"
+            ),
         ]
         tree = analyzer._build_plugin_command_tree(commands)
         # Flattened: group1 is replaced by its single child because child.name == group_name
@@ -130,14 +199,23 @@ class TestCommandSorting:
 
     def test_render_node_sort_children_recursive(self):
         """sort_children 应递归排序所有后代。"""
-        parent = RenderNode(name="parent", is_group=True, children=[
-            RenderNode(name="z", type="command"),
-            RenderNode(name="a", type="regex"),
-            RenderNode(name="m", is_group=True, type="group", children=[
-                RenderNode(name="y", type="command"),
-                RenderNode(name="x", type="regex"),
-            ]),
-        ])
+        parent = RenderNode(
+            name="parent",
+            is_group=True,
+            children=[
+                RenderNode(name="z", type="command"),
+                RenderNode(name="a", type="regex"),
+                RenderNode(
+                    name="m",
+                    is_group=True,
+                    type="group",
+                    children=[
+                        RenderNode(name="y", type="command"),
+                        RenderNode(name="x", type="regex"),
+                    ],
+                ),
+            ],
+        )
         parent.sort_children()
         assert [c.name for c in parent.children] == ["z", "a", "m"]
         assert [c.name for c in parent.children[2].children] == ["y", "x"]
