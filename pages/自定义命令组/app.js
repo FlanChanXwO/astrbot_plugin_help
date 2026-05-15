@@ -244,3 +244,4 @@ ready()
 
 // Mount petite-vue - use store as the root scope data
 PetiteVue.createApp(store).mount('.container');
+window.__vueMounted = true;
