@@ -175,6 +175,20 @@ class HelpService:
         except Exception:
             plugin_names = []
 
+        # Include custom command descriptions in cache key to invalidate on description changes
+        custom_commands_data = []
+        for group in sorted(self.config.custom_groups, key=lambda g: g.group_name):
+            for cmd in sorted(group.commands, key=lambda c: c.command or c.pattern):
+                custom_commands_data.append(
+                    {
+                        "group": group.group_name,
+                        "command": cmd.command
+                        if cmd.type == "command"
+                        else cmd.pattern,
+                        "description": cmd.description,
+                    }
+                )
+
         cache_data = {
             "plugins": plugin_names,
             "mode": mode,
@@ -183,6 +197,7 @@ class HelpService:
             "html_theme": self.config.rendering.html_theme,
             "use_t2i": self.config.rendering.use_t2i,
             "custom_groups": sorted(g.group_name for g in self.config.custom_groups),
+            "custom_commands": custom_commands_data,
         }
 
         cache_str = json.dumps(cache_data, sort_keys=True, ensure_ascii=False)

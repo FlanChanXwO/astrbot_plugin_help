@@ -194,6 +194,10 @@ class HelpPlugin(Star):
                                 "type": "regex",
                                 "pattern": c.pattern,
                                 "examples": c.examples,
+<<<<<<< HEAD
+=======
+                                "description": c.description,
+>>>>>>> 0043a9e (fix: wire custom command descriptions through API and improve cache invalidation)
                                 "is_admin": c.is_admin,
                                 "hidden": c.hidden,
                             }
@@ -204,6 +208,10 @@ class HelpPlugin(Star):
                                 "type": "command",
                                 "command": c.command,
                                 "aliases": c.aliases,
+<<<<<<< HEAD
+=======
+                                "description": c.description,
+>>>>>>> 0043a9e (fix: wire custom command descriptions through API and improve cache invalidation)
                                 "is_admin": c.is_admin,
                                 "hidden": c.hidden,
                             }
@@ -258,6 +266,7 @@ class HelpPlugin(Star):
                                 type="regex",
                                 pattern=cmd["pattern"],
                                 examples=[str(e) for e in cmd.get("examples", []) if e],
+                                description=cmd.get("description", ""),
                                 is_admin=cmd.get("is_admin", False),
                                 hidden=cmd.get("hidden", False),
                             )
@@ -290,6 +299,7 @@ class HelpPlugin(Star):
                         CustomGroupCommand(
                             type="command",
                             command=cmd_name,
+                            description=cmd.get("description", ""),
                             aliases=[str(a) for a in aliases if a] if aliases else [],
                             sub_commands=[str(s) for s in sub_commands if s],
                             is_admin=cmd.get("is_admin", False),
@@ -367,6 +377,7 @@ class HelpPlugin(Star):
                                 type="regex",
                                 pattern=cmd["pattern"],
                                 examples=[str(e) for e in cmd.get("examples", []) if e],
+                                description=cmd.get("description", ""),
                                 is_admin=cmd.get("is_admin", False),
                                 hidden=cmd.get("hidden", False),
                             )
@@ -399,6 +410,7 @@ class HelpPlugin(Star):
                         CustomGroupCommand(
                             type="command",
                             command=cmd_name,
+                            description=cmd.get("description", ""),
                             aliases=[str(a) for a in aliases if a] if aliases else [],
                             sub_commands=[str(s) for s in sub_commands if s],
                             is_admin=cmd.get("is_admin", False),
