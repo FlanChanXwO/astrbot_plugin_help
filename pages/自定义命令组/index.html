@@ -149,6 +149,10 @@
                                                        @keydown.enter.prevent="$event.target.value.trim() && !cmd.aliases.includes($event.target.value.trim()) ? (cmd.aliases.push($event.target.value.trim()), $event.target.value = '') : null">
                                             </div>
                                         </div>
+                                        <div class="desc-section" style="margin-top: 8px;">
+                                            <label style="font-size: 12px; color: #64748b;">命令描述</label>
+                                            <input type="text" v-model="cmd.description" placeholder="简短描述该命令的作用" style="width: 100%; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 13px;">
+                                        </div>
                                     </div>
                                     <div class="input-field pattern-field"
                                          :class="cmd.type === 'regex' ? 'visible' : 'hidden'">
@@ -167,6 +171,10 @@
                                                 <input type="text" class="tag-input" placeholder="输入后按回车"
                                                        @keydown.enter.prevent="$event.target.value.trim() && !cmd.examples.includes($event.target.value.trim()) ? (cmd.examples.push($event.target.value.trim()), $event.target.value = '') : null">
                                             </div>
+                                        </div>
+                                        <div class="desc-section" style="margin-top: 8px;">
+                                            <label style="font-size: 12px; color: #64748b;">命令描述</label>
+                                            <input type="text" v-model="cmd.description" placeholder="简短描述该正则命令的作用" style="width: 100%; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 13px;">
                                         </div>
                                     </div>
                                 </div>

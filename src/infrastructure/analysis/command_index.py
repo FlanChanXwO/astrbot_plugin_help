@@ -599,7 +599,13 @@ class CommandIndex:
                 summary.commands.sort(
                     key=lambda item: (
                         # 排序：普通命令(0) -> 正则命令(1) -> 命令组(2)
-                        (0 if item.type == "command" else 1 if item.type == "regex" else 2),
+                        (
+                            0
+                            if item.type == "command"
+                            else 1
+                            if item.type == "regex"
+                            else 2
+                        ),
                         item.command,
                     )
                 )
@@ -678,7 +684,9 @@ class CommandIndex:
                     tag = "normal"
 
                 # 正则命令自动生成示例和用法提示（优先保留用户配置的示例）
-                examples: list[str] = list(cmd_config.examples) if cmd_config.examples else []
+                examples: list[str] = (
+                    list(cmd_config.examples) if cmd_config.examples else []
+                )
                 usage_hint = ""
                 if cmd_config.type == "regex" and cmd_config.pattern:
                     if not examples:
@@ -695,7 +703,7 @@ class CommandIndex:
                 # 创建命令条目 - 不设置 group_name，自定义命令作为独立命令平铺显示
                 entry = CommandEntry(
                     command=cmd_name,
-                    description="",
+                    description=cmd_config.description,
                     plugin=f"_custom_group_{group.group_name}",
                     plugin_display_name=group.group_name,
                     plugin_version="",
@@ -840,7 +848,8 @@ class CommandIndex:
                 tag = "admin" if self._has_admin_permission(handler) else "normal"
                 default_prefix = self.prefixes[0] if self.prefixes else "/"
                 normalized_group_alias = [
-                    a if a.startswith(default_prefix) else default_prefix + a for a in group_alias
+                    a if a.startswith(default_prefix) else default_prefix + a
+                    for a in group_alias
                 ]
                 return CommandEntry(
                     command=f"{default_prefix}{group_name}",
@@ -857,7 +866,9 @@ class CommandIndex:
             return None
 
         default_prefix = self.prefixes[0] if self.prefixes else "/"
-        if type_ == "command" and not any(command_name.startswith(p) for p in self.prefixes):
+        if type_ == "command" and not any(
+            command_name.startswith(p) for p in self.prefixes
+        ):
             command_name = default_prefix + command_name
 
         normalized_aliases = []
