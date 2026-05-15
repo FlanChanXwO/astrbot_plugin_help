@@ -14,12 +14,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 # 添加项目路径
-sys.path.insert(0, 'src')
+sys.path.insert(0, "src")
 
 
 @dataclass
 class MockCommandEntry:
     """模拟命令条目"""
+
     command: str
     description: str = ""
     plugin: str = "test_plugin"
@@ -47,6 +48,7 @@ class MockCommandEntry:
 @dataclass
 class MockPluginSummary:
     """模拟插件摘要"""
+
     plugin: str
     commands: list[Any]
     plugin_display_name: str | None = None
@@ -57,9 +59,11 @@ class MockPluginSummary:
 @dataclass
 class MockCustomGroupCommand:
     """模拟自定义组命令配置"""
+
     command_name: str
     pattern: str = ""
     type: str = "command"
+    description: str = ""
     is_admin: bool = False
     show_in_menu: bool = True
 
@@ -67,6 +71,7 @@ class MockCustomGroupCommand:
 @dataclass
 class MockCustomGroupConfig:
     """模拟自定义组配置"""
+
     group_name: str
     description: str = ""
     commands: list[MockCustomGroupCommand] = field(default_factory=list)
@@ -79,6 +84,7 @@ class MockCustomGroupConfig:
 
 class MockConfig:
     """模拟配置"""
+
     def __init__(self):
         self.custom_groups: list[MockCustomGroupConfig] = []
 
@@ -100,13 +106,13 @@ class TestSearchWithCustomGroups:
             command="/help",
             description="显示帮助",
             plugin="astrbot_plugin_helpinfo",
-            custom_groups=["常用命令"]
+            custom_groups=["常用命令"],
         )
         cmd2 = MockCommandEntry(
             command="/status",
             description="查看状态",
             plugin="astrbot_plugin_status",
-            custom_groups=["常用命令"]
+            custom_groups=["常用命令"],
         )
         cmd3 = MockCommandEntry(
             command="/setu",
@@ -114,13 +120,13 @@ class TestSearchWithCustomGroups:
             plugin="astrbot_plugin_setu",
             pattern=r"^来.*色图$",
             type="regex",
-            custom_groups=["娱乐命令"]
+            custom_groups=["娱乐命令"],
         )
         cmd4 = MockCommandEntry(
             command="/admin",
             description="管理员命令",
             plugin="astrbot_plugin_admin",
-            tag="admin"
+            tag="admin",
         )
 
         # 添加到命令字典
@@ -136,14 +142,14 @@ class TestSearchWithCustomGroups:
             commands=[
                 MockCustomGroupCommand(command_name="help"),
                 MockCustomGroupCommand(command_name="status"),
-            ]
+            ],
         )
         group2 = MockCustomGroupConfig(
             group_name="娱乐命令",
             description="娱乐命令组",
             commands=[
                 MockCustomGroupCommand(command_name="setu", type="regex"),
-            ]
+            ],
         )
 
         self.config.add_group(group1)
@@ -181,12 +187,12 @@ class TestSearchWithCustomGroups:
 
         # 验证是否找到 help 命令
         assert len(results) >= 1
-        assert any(r['command'] == '/help' for r in results)
+        assert any(r["command"] == "/help" for r in results)
 
         # 验证 custom_groups 字段
-        help_cmd = next(r for r in results if r['command'] == '/help')
+        help_cmd = next(r for r in results if r["command"] == "/help")
         print(f"custom_groups: {help_cmd.get('custom_groups', [])}")
-        assert "常用命令" in help_cmd.get('custom_groups', [])
+        assert "常用命令" in help_cmd.get("custom_groups", [])
 
         print("[OK] 测试通过")
 
@@ -202,7 +208,7 @@ class TestSearchWithCustomGroups:
 
         # 验证是否找到 setu 命令（通过 pattern 匹配）
         assert len(results) >= 1
-        assert any('色图' in r.get('pattern', '') for r in results if r.get('pattern'))
+        assert any("色图" in r.get("pattern", "") for r in results if r.get("pattern"))
 
         print("[OK] 测试通过")
 
@@ -223,10 +229,155 @@ class TestSearchWithCustomGroups:
             print(f"自定义组: {detail.get('custom_groups', [])}")
 
             # 验证 custom_groups 字段
-            assert "常用命令" in detail.get('custom_groups', [])
+            assert "常用命令" in detail.get("custom_groups", [])
         else:
             print("[WARN] 未找到命令详情")
 
+        print("[OK] 测试通过")
+
+    def test_custom_group_command_description_propagated(self):
+        """测试自定义命令描述正确传递到搜索结果"""
+        print("\n--- 测试5: 自定义命令描述传递 ---")
+
+        # 创建带描述的自定义命令
+        group = MockCustomGroupConfig(
+            group_name="部署命令",
+            description="部署相关命令",
+            commands=[
+                MockCustomGroupCommand(
+                    command_name="deploy_app",
+                    pattern="deploy app",
+                    description="部署应用到测试环境",
+                ),
+                MockCustomGroupCommand(
+                    command_name="rollback_app",
+                    pattern="rollback app",
+                    description="回滚应用版本",
+                ),
+            ],
+        )
+
+        # 模拟将这些命令添加到命令字典
+        for cmd in group.commands:
+            cmd_entry = MockCommandEntry(
+                command=f"/{cmd.command_name}",
+                description=cmd.description,  # 使用自定义命令的描述
+                plugin=f"_custom_group_{group.group_name}",
+                custom_groups=[group.group_name],
+            )
+            self.all_commands[cmd_entry.command] = cmd_entry.to_dict()
+
+        # 验证描述已正确传递
+        deploy_cmd = self.all_commands.get("/deploy_app")
+        assert deploy_cmd is not None
+        assert deploy_cmd["description"] == "部署应用到测试环境"
+        assert deploy_cmd["custom_groups"] == ["部署命令"]
+
+        rollback_cmd = self.all_commands.get("/rollback_app")
+        assert rollback_cmd is not None
+        assert rollback_cmd["description"] == "回滚应用版本"
+        assert rollback_cmd["custom_groups"] == ["部署命令"]
+
+        print("验证描述传递:")
+        print(f"  - deploy_app: '{deploy_cmd['description']}'")
+        print(f"  - rollback_app: '{rollback_cmd['description']}'")
+        print("[OK] 测试通过")
+
+    def test_custom_group_command_search_by_description_keywords(self):
+        """测试通过描述中的关键字搜索自定义命令"""
+        print("\n--- 测试6: 通过描述关键字搜索 ---")
+
+        # 创建带描述的自定义命令
+        group = MockCustomGroupConfig(
+            group_name="管理命令",
+            description="系统管理",
+            commands=[
+                MockCustomGroupCommand(
+                    command_name="backup_db",
+                    pattern="backup db",
+                    description="备份数据库到远程服务器",
+                ),
+                MockCustomGroupCommand(
+                    command_name="restore_db",
+                    pattern="restore db",
+                    description="从备份恢复数据库",
+                ),
+            ],
+        )
+
+        # 模拟将这些命令添加到命令字典
+        for cmd in group.commands:
+            cmd_entry = MockCommandEntry(
+                command=f"/{cmd.command_name}",
+                description=cmd.description,
+                plugin=f"_custom_group_{group.group_name}",
+                custom_groups=[group.group_name],
+            )
+            self.all_commands[cmd_entry.command] = cmd_entry.to_dict()
+
+        # 搜索描述中的关键字
+        keyword = "远程"
+        results = self._search_commands(keyword)
+
+        print(f"搜索关键字: '{keyword}'")
+        print(f"找到命令: {[r['command'] for r in results]}")
+
+        # 验证能通过描述关键字找到命令
+        assert len(results) >= 1
+        assert any(r["command"] == "/backup_db" for r in results)
+        assert any("远程" in r.get("description", "") for r in results)
+
+        print("[OK] 测试通过")
+
+    def test_custom_group_command_without_description_backward_compatible(self):
+        """测试没有描述的命令仍然正常工作（向后兼容）"""
+        print("\n--- 测试7: 向后兼容性 ---")
+
+        # 创建没有描述的自定义命令
+        group = MockCustomGroupConfig(
+            group_name="基础命令",
+            description="基础功能",
+            commands=[
+                MockCustomGroupCommand(
+                    command_name="status",
+                    pattern="status",
+                    description="",  # 空描述
+                ),
+                MockCustomGroupCommand(
+                    command_name="ping",
+                    pattern="ping",
+                    description=None,  # None 描述
+                ),
+            ],
+        )
+
+        # 模拟将这些命令添加到命令字典
+        for cmd in group.commands:
+            cmd_entry = MockCommandEntry(
+                command=f"/{cmd.command_name}",
+                description=cmd.description or "",  # 空描述回退到空字符串
+                plugin=f"_custom_group_{group.group_name}",
+                custom_groups=[group.group_name],
+            )
+            self.all_commands[cmd_entry.command] = cmd_entry.to_dict()
+
+        # 验证命令仍然可以搜索
+        status_cmd = self.all_commands.get("/status")
+        ping_cmd = self.all_commands.get("/ping")
+
+        assert status_cmd is not None
+        assert ping_cmd is not None
+        assert status_cmd["description"] == ""
+        assert ping_cmd["description"] == ""
+
+        # 搜索仍然能找到这些命令
+        results = self._search_commands("status")
+        assert len(results) >= 1
+        assert any(r["command"] == "/status" for r in results)
+
+        print("验证向后兼容:")
+        print("  - 空描述命令: 可搜索 ✅")
+        print("  - None 描述命令: 回退到空字符串 ✅")
         print("[OK] 测试通过")
 
     def _find_matching_custom_groups(self, keyword: str) -> list:
@@ -272,7 +423,9 @@ class TestSearchWithCustomGroups:
             searchable_name = cmd_name.lower().lstrip("/")
             if keyword_lower in searchable_name:
                 results.append(cmd_info)
-            elif cmd_info.get("pattern") and keyword_lower in cmd_info["pattern"].lower():
+            elif (
+                cmd_info.get("pattern") and keyword_lower in cmd_info["pattern"].lower()
+            ):
                 results.append(cmd_info)
             elif keyword_lower in cmd_info.get("description", "").lower():
                 results.append(cmd_info)
@@ -283,7 +436,9 @@ class TestSearchWithCustomGroups:
         for cmd_info in self.all_commands.values():
             if cmd_info in results:
                 continue
-            if any(keyword_lower in g.lower() for g in cmd_info.get("custom_groups", [])):
+            if any(
+                keyword_lower in g.lower() for g in cmd_info.get("custom_groups", [])
+            ):
                 results.append(cmd_info)
             if len(results) >= limit:
                 return results[:limit]
@@ -313,6 +468,15 @@ class TestSearchWithCustomGroups:
             ("组内命令搜索", self.test_search_by_command_in_group),
             ("正则命令搜索", self.test_search_regex_command_in_group),
             ("命令详情", self.test_get_command_detail_with_custom_group),
+            ("描述传递", self.test_custom_group_command_description_propagated),
+            (
+                "描述关键字搜索",
+                self.test_custom_group_command_search_by_description_keywords,
+            ),
+            (
+                "向后兼容性",
+                self.test_custom_group_command_without_description_backward_compatible,
+            ),
         ]
 
         passed = 0

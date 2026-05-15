@@ -31,6 +31,7 @@ def get_context() -> Context:
     """
     if _context_instance is None:
         from ..domain.exceptions import ContextNotInitializedError
+
         raise ContextNotInitializedError(
             "Context not initialized. Call set_context() first."
         )

@@ -34,6 +34,7 @@ def get_config() -> HelpPluginConfig:
     """
     if _config_instance is None:
         from ...domain.exceptions import ConfigNotInitializedError
+
         raise ConfigNotInitializedError(
             "Config not initialized. Call init_config() first."
         )

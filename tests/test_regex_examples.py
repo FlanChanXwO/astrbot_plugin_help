@@ -92,7 +92,9 @@ class RegexExampleGenerator:
             else:
                 complete = False
 
-        ordered = sorted({v for v in values if v}, key=lambda value: (len(value), value))
+        ordered = sorted(
+            {v for v in values if v}, key=lambda value: (len(value), value)
+        )
         if not ordered:
             return ["x"], False
         truncated = len(ordered) > limit
@@ -186,7 +188,9 @@ class RegexExampleGenerator:
 
         return results[: limit * 3], complete
 
-    def _generate_fallback_examples(self, pattern: str, compiled: re.Pattern, limit: int) -> list[str]:
+    def _generate_fallback_examples(
+        self, pattern: str, compiled: re.Pattern, limit: int
+    ) -> list[str]:
         """生成回退示例."""
         examples = []
 
@@ -251,7 +255,9 @@ class RegexExampleGenerator:
             fallback = self._generate_fallback_examples(
                 pattern, compiled, self._regex_example_limit
             )
-            ordered = sorted(set(ordered + fallback), key=lambda value: (len(value), value))
+            ordered = sorted(
+                set(ordered + fallback), key=lambda value: (len(value), value)
+            )
 
         if len(ordered) > self._regex_example_limit:
             return ordered[: self._regex_example_limit], True
@@ -304,9 +310,9 @@ class TestRegexExampleGeneration:
         examples, complete = generator.generate_examples(r"[^abc]+")
         assert len(examples) > 0
         for ex in examples:
-            assert 'a' not in ex, f"示例 '{ex}' 包含被排除的字符 'a'"
-            assert 'b' not in ex, f"示例 '{ex}' 包含被排除的字符 'b'"
-            assert 'c' not in ex, f"示例 '{ex}' 包含被排除的字符 'c'"
+            assert "a" not in ex, f"示例 '{ex}' 包含被排除的字符 'a'"
+            assert "b" not in ex, f"示例 '{ex}' 包含被排除的字符 'b'"
+            assert "c" not in ex, f"示例 '{ex}' 包含被排除的字符 'c'"
 
     def test_digit_class(self, generator):
         """测试数字类 \d."""
@@ -378,8 +384,9 @@ class TestRegexExampleGeneration:
             compiled = re.compile(pattern)
 
             for ex in examples:
-                assert compiled.search(ex) is not None, \
+                assert compiled.search(ex) is not None, (
                     f"模式 '{pattern}' 的示例 '{ex}' 无法匹配"
+                )
 
     def test_empty_pattern(self, generator):
         """测试空模式."""

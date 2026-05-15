@@ -56,6 +56,7 @@ class CustomGroupCommand(BaseModel):
 
     command: str = Field(default="", description="命令名称")
     type: str = Field(default="command", description="类型：command 或 regex")
+    description: str = Field(default="", description="命令描述")
     is_admin: bool = Field(default=False, description="是否需要管理员权限")
     hidden: bool = Field(default=False, description="是否隐藏")
     aliases: list[str] = Field(

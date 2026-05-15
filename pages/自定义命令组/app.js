@@ -12,6 +12,7 @@ function newCommand(type = 'command') {
         _key: cmdKey++,
         type,
         command: '',
+        description: '',
         pattern: '',
         aliases: [],
         examples: [],
@@ -62,6 +63,7 @@ const store = PetiteVue.reactive({
             this.form.commands = (g.commands || []).map((c) => ({
                 ...c,
                 _key: cmdKey++,
+                description: (c.description || '').trim(),
                 aliases: [...(c.aliases || [])],
                 examples: [...(c.examples || [])],
             }));
@@ -187,7 +189,7 @@ const store = PetiteVue.reactive({
             }
         }
         const cmdList = this.form.commands.map((cmd) => {
-            const base = {is_admin: cmd.is_admin, hidden: cmd.hidden};
+            const base = {is_admin: cmd.is_admin, hidden: cmd.hidden, description: (cmd.description || '').trim()};
             if (cmd.type === 'command') {
                 return {...base, type: 'command', command: cmd.command.trim(), aliases: [...cmd.aliases]};
             }

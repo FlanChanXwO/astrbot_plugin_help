@@ -21,7 +21,11 @@ class MockAstrMessageEvent:
         self.group_id = group_id
         self._is_admin = is_admin_flag
         self.platform_name = platform_name
-        self.unified_msg_origin = f"{platform_name}:{group_id}:{user_id}" if group_id else f"{platform_name}:{user_id}"
+        self.unified_msg_origin = (
+            f"{platform_name}:{group_id}:{user_id}"
+            if group_id
+            else f"{platform_name}:{user_id}"
+        )
         self.session_id = self.unified_msg_origin
 
         # Mock 消息组件

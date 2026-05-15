@@ -77,9 +77,7 @@ class CacheManager:
             "query": query,
             "is_admin": is_admin,
             "html_theme": config.html_theme,
-            "custom_groups": sorted(
-                g.group_name for g in config.custom_groups
-            ),
+            "custom_groups": sorted(g.group_name for g in config.custom_groups),
         }
 
         # 生成哈希

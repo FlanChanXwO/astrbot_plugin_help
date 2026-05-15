@@ -287,7 +287,9 @@ class CommandAnalyzer(BaseAnalyzer):
                     cmd_aliases = getattr(command, "aliases", [])
                     if cmd_aliases:
                         for alias in cmd_aliases:
-                            alias_name = alias.lstrip("/") if alias.startswith("/") else alias
+                            alias_name = (
+                                alias.lstrip("/") if alias.startswith("/") else alias
+                            )
                             if alias_name != group_name:
                                 group_aliases[group_name].append(alias_name)
                 else:
@@ -310,7 +312,9 @@ class CommandAnalyzer(BaseAnalyzer):
             group_desc = ""
             group_tag = self._pick_group_tag(group_commands)
             if placeholder:
-                group_desc = getattr(placeholder, "description", "") or self._build_group_desc(group_commands)
+                group_desc = getattr(
+                    placeholder, "description", ""
+                ) or self._build_group_desc(group_commands)
                 placeholder_tag = getattr(placeholder, "tag", "normal")
                 if placeholder_tag == "admin":
                     group_tag = "admin"
@@ -407,6 +411,7 @@ class CommandAnalyzer(BaseAnalyzer):
         if any(getattr(command, "type", "command") == "regex" for command in commands):
             return "regex_pattern"
         return "normal"
+
 
 class EventAnalyzer(BaseAnalyzer):
     """事件分析器"""

@@ -139,7 +139,7 @@ class MyTool(FunctionTool):
 ## Conventions
 
 - **Formatting**: Ruff only (`ruff check .` and `ruff format .` before PR)
-- **Testing**: 
+- **Testing**:
   - Run `pytest` after every change to verify no regressions
   - Add new tests for new features or bug fixes
   - Use `pytest -v` for verbose output, `pytest -x` to stop on first failure
