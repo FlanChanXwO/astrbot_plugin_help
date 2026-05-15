@@ -11,6 +11,11 @@ from pydantic import BaseModel, Field, field_validator
 
 from ...shared.constants import DefaultCFG
 
+# Rendering configuration validation boundaries
+# 这些常量定义了并发渲染任务的合理范围，防止配置错误导致系统问题
+MIN_CONCURRENT_TASKS = 1  # 最小值：防止信号量阻塞所有渲染
+MAX_CONCURRENT_TASKS = 20  # 最大值：防止并发任务过多导致系统过载
+
 
 class RenderingConfig(BaseModel):
     """渲染引擎配置"""
@@ -35,9 +40,10 @@ class RenderingConfig(BaseModel):
     @field_validator("max_concurrent_tasks")
     @classmethod
     def validate_max_concurrent_tasks(cls, v: int) -> int:
-        """验证并限制并发渲染数在合理范围内"""
-        MIN_CONCURRENT_TASKS = 1  # 最小值防止阻塞
-        MAX_CONCURRENT_TASKS = 20  # 最大值防止过载
+        """验证并限制并发渲染数在合理范围内
+
+        边界值使用模块级常量定义，便于统一调整和发现
+        """
         if v < MIN_CONCURRENT_TASKS:
             raise ValueError(
                 f"max_concurrent_tasks must be at least {MIN_CONCURRENT_TASKS} to prevent blocking"

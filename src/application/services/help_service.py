@@ -73,6 +73,18 @@ class HelpService:
         # Warm up cache: build command index JSON without rendering images
         # Images will be lazily generated on first help menu request
         # Use background task to avoid blocking plugin initialization
+
+        # Cancel existing warm-up task if still running (prevent concurrent tasks)
+        if self._cache_warmup_task and not self._cache_warmup_task.done():
+            logger.debug(
+                "Cancelling previous cache warm-up task before starting new one..."
+            )
+            self._cache_warmup_task.cancel()
+            try:
+                await asyncio.shield(self._cache_warmup_task)
+            except asyncio.CancelledError:
+                logger.debug("Previous cache warm-up task cancelled")
+
         async def _warm_up_cache():
             try:
                 logger.debug("Building command index cache...")
