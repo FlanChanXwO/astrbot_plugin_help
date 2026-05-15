@@ -316,6 +316,9 @@ class CommandExecutor:
             is_forwarding_command = (
                 is_any_custom_cmd and all_generic and has_forwarding_plugin
             )
+            # 自定义正则命令：即使没有转发插件也不应该被黑名单拦截
+            if is_custom_regex_cmd and not is_forwarding_command:
+                is_forwarding_command = True
 
             # 如果只匹配到通用处理器，需要进一步判断
             if all_generic and matched_handlers:

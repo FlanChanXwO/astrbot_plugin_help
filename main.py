@@ -124,9 +124,12 @@ class HelpPlugin(Star):
                 "normal" (normal member commands only), "admin" (admin commands only), "all" (all commands).
 
         Returns:
-            For multiple matches: Results organized by plugin with command lists
-            For single exact match: Detailed command information including description, usage,
-                examples, plugin affiliation, and related commands
+            For multiple matches: Results organized by plugin with command lists. Each command has:
+                - "command": The full command with the correct prefix (e.g., "/help", "!status")
+                - "type": Command type - "command" (regular) or "regex" (regex pattern)
+            For single exact match: Detailed command information. IMPORTANT: Use the "command" field
+                from the result directly when calling execute_astrbot_command, as it includes the correct prefix.
+            All responses include "command_prefix" field showing available prefixes (e.g., ["/"], ["!", "#"])
         """
         service = get_help_service()
 
@@ -149,20 +152,25 @@ class HelpPlugin(Star):
     ) -> str:
         """Execute an AstrBot command.
 
+        Important: Always get the command string from search_command results first, as it includes
+        the correct prefix configured in the user's system (e.g., "/", "!", "#").
+
         Important Limitations: Some commands require @mentioning other users (e.g., "设置被鹿 开 @user").
         Since @ formats vary across platforms and you may not be able to obtain user IDs,
         it is recommended to only call commands that don't require @others. If @ is needed,
         guide the user to execute manually.
 
-        Note: The results returned by search_command and get_command_detail include an "invokable" field.
+        Note: The results returned by search_command include an "invokable" field.
         If this field is false, it means the command's plugin is in the AI call blacklist,
         and you should not attempt to call it.
 
         Args:
-            command (str): The command to execute.
-                - Regular commands need to include the command prefix, e.g., "/help", "/status".
-                - Regex commands (e.g., "来份色图") don't need a command prefix, just send the matching content.
-                - Avoid calling commands that require @user, e.g., "设置被鹿 开 @user".
+            command (str): The command to execute. IMPORTANT: Use the exact "command" field value
+                returned by search_command. This will already have the correct prefix.
+                - For regular commands: Already includes prefix, e.g., "/help", "!status"
+                - For regex commands: Use "regex:pattern" format, e.g., "regex:来份色图"
+                  The executor will automatically convert this to actual matching text
+                - Avoid calling commands that require @user, e.g., "设置被鹿 开 @user"
 
         Returns:
             Command execution result, including success status, matched handler, generated messages, etc.

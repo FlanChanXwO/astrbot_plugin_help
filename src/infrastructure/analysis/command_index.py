@@ -37,6 +37,7 @@ class CommandIndex:
         self._last_custom_groups_signature: str = ""
         self._regex_example_limit = 10
         self._custom_groups: list[CustomGroupConfig] = []
+        self.prefixes: list[str] = ["/"]
 
     def update_ignored_plugins(self, ignored_plugins: Iterable[str]):
         """更新忽略插件列表"""
@@ -665,7 +666,8 @@ class CommandIndex:
                         continue
 
                 if not cmd_name.startswith("/") and cmd_type == "command":
-                    cmd_name = f"/{cmd_name}"
+                    default_prefix = self.prefixes[0] if self.prefixes else "/"
+                    cmd_name = f"{default_prefix}{cmd_name}"
 
                 # 确定标签
                 if cmd_config.is_admin:
@@ -836,11 +838,12 @@ class CommandIndex:
         if not command_name:
             if group_name:
                 tag = "admin" if self._has_admin_permission(handler) else "normal"
+                default_prefix = self.prefixes[0] if self.prefixes else "/"
                 normalized_group_alias = [
-                    a if a.startswith("/") else "/" + a for a in group_alias
+                    a if a.startswith(default_prefix) else default_prefix + a for a in group_alias
                 ]
                 return CommandEntry(
-                    command=f"/{group_name}",
+                    command=f"{default_prefix}{group_name}",
                     description=self._sanitize_handler_desc(handler) or group_name,
                     plugin=summary.plugin,
                     plugin_display_name=summary.plugin_display_name,
@@ -853,12 +856,16 @@ class CommandIndex:
                 )
             return None
 
-        if type_ == "command" and not command_name.startswith("/"):
-            command_name = "/" + command_name
+        default_prefix = self.prefixes[0] if self.prefixes else "/"
+        if type_ == "command" and not any(command_name.startswith(p) for p in self.prefixes):
+            command_name = default_prefix + command_name
 
         normalized_aliases = []
         for alias in aliases:
-            normalized_aliases.append(alias if alias.startswith("/") else "/" + alias)
+            if any(alias.startswith(p) for p in self.prefixes):
+                normalized_aliases.append(alias)
+            else:
+                normalized_aliases.append(default_prefix + alias)
 
         desc = self._sanitize_handler_desc(handler) or "无描述"
         tag = "admin" if self._has_admin_permission(handler) else "normal"

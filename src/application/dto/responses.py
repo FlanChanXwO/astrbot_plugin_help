@@ -162,6 +162,7 @@ class ListPluginsResponse:
 
     success: bool
     plugin_count: int = 0
+    command_prefix: list[str] = field(default_factory=list)
     plugins: list[dict] = field(default_factory=list)
     error: str | None = None
 

@@ -83,8 +83,9 @@ class HelpService:
         except Exception as exc:
             logger.warning(f"Failed to get wake prefix, using default '/': {exc}")
             self.prefixes = ["/"]
-        # Sync update CommandExecutor prefixes
+        # Sync update CommandExecutor and CommandIndex prefixes
         self.command_executor.update_prefixes(self.prefixes)
+        self.command_index.prefixes = self.prefixes
 
     def sync_config(self, raw_config: AstrBotConfig | None = None):
         """Sync config state"""
@@ -715,6 +716,7 @@ Suggestion: Check WebUI configuration or search with different keywords."""
             return ListPluginsResponse(
                 success=True,
                 plugin_count=len(result),
+                command_prefix=self.prefixes,
                 plugins=result,
             ).to_json()
         except Exception as exc:
