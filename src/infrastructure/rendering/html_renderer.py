@@ -32,7 +32,9 @@ class HTMLHelpRenderer:
         self.template_manager = HTMLTemplateManager()
 
         # 渲染信号量：支持并发渲染以提高性能
-        self._render_semaphore = asyncio.Semaphore(self.config.rendering.max_concurrent_tasks)
+        self._render_semaphore = asyncio.Semaphore(
+            self.config.rendering.max_concurrent_tasks
+        )
 
         # Playwright 浏览器实例（延迟初始化）
         self._browser = None
