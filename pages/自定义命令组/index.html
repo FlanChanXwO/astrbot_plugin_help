@@ -12,12 +12,9 @@
     <link rel="stylesheet" href="./css/notifications.css"/>
     <link rel="stylesheet" href="./css/responsive.css"/>
     <link rel="stylesheet" href="./css/dark-theme.css"/>
-    <style>
-        body{margin:0;background:#f0f2f5}.loading-screen{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#f0f2f5;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#64748b;font-size:14px;z-index:9999}.loading-screen .spinner{width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:#3b82f6;border-radius:50%;animation:spin .8s linear infinite;margin-right:12px}@keyframes spin{to{transform:rotate(360deg)}}[v-cloak]{display:none!important}
-    </style>
 </head>
 <body>
-<div class="container" v-scope v-cloak>
+<div class="container" v-scope>
     <main class="main">
         <!-- 分组列表 -->
         <section class="groups-section">
@@ -241,34 +238,7 @@
     </div>
 </div>
 
-<!-- 加载遮罩（Vue 初始化前显示） -->
-<div class="loading-screen" id="loading" style="display:none;">
-    <div style="width:32px;height:32px;border:3px solid #e2e8f0;border-top-color:#3b82f6;border-radius:50%;animation:spin .8s linear infinite;margin-right:12px"></div>
-    加载中...
-</div>
-
 <script src="./lib/petite-vue.iife.js"></script>
 <script type="module" src="./app.js"></script>
-<script>
-(function() {
-    var loading = document.getElementById('loading');
-    var app = document.querySelector('.container');
-    // 显示遮罩，隐藏 Vue app
-    if (loading) { loading.style.display = 'flex'; }
-    if (app) { app.style.display = 'none'; }
-
-    // 等 Vue 挂载后隐藏遮罩
-    document.addEventListener('DOMContentLoaded', function() {
-        var poll = setInterval(function() {
-            if (window.__vueMounted) {
-                clearInterval(poll);
-                if (loading) { loading.style.display = 'none'; }
-            }
-        }, 100);
-        // 超时 10s 自动移除
-        setTimeout(function() { clearInterval(poll); if (loading) loading.style.display = 'none'; }, 10000);
-    });
-})();
-</script>
 </body>
 </html>
