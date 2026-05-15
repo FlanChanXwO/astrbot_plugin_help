@@ -32,9 +32,20 @@ class HTMLHelpRenderer:
         self.template_manager = HTMLTemplateManager()
 
         # 渲染信号量：支持并发渲染以提高性能
-        self._render_semaphore = asyncio.Semaphore(
-            self.config.rendering.max_concurrent_tasks
-        )
+        # 验证并限制并发数，防止配置错误导致系统过载
+        max_concurrent = self.config.rendering.max_concurrent_tasks
+        if max_concurrent < 1:
+            logger.warning(
+                f"max_concurrent_tasks is {max_concurrent}, clamping to 1 to prevent blocking"
+            )
+            max_concurrent = 1
+        elif max_concurrent > 20:
+            logger.warning(
+                f"max_concurrent_tasks is {max_concurrent}, clamping to 20 to prevent overload"
+            )
+            max_concurrent = 20
+
+        self._render_semaphore = asyncio.Semaphore(max_concurrent)
 
         # Playwright 浏览器实例（延迟初始化）
         self._browser = None

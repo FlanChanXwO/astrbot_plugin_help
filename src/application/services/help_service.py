@@ -69,11 +69,13 @@ class HelpService:
         # Warm up cache: build command index JSON without rendering images
         # Images will be lazily generated on first help menu request
         try:
-            logger.info("Building command index cache...")
+            logger.debug("Building command index cache...")
             self.command_index.get_all_commands()
-            logger.info("Command index cache initialized successfully")
-        except Exception as exc:
-            logger.warning(f"Failed to build command index cache: {exc}")
+            logger.debug("Command index cache initialized successfully")
+        except Exception:
+            logger.exception(
+                "Failed to build command index cache during initialization"
+            )
 
         logger.info("Initialization completed")
 
