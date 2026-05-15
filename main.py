@@ -194,10 +194,7 @@ class HelpPlugin(Star):
                                 "type": "regex",
                                 "pattern": c.pattern,
                                 "examples": c.examples,
-<<<<<<< HEAD
-=======
                                 "description": c.description,
->>>>>>> 0043a9e (fix: wire custom command descriptions through API and improve cache invalidation)
                                 "is_admin": c.is_admin,
                                 "hidden": c.hidden,
                             }
@@ -208,10 +205,7 @@ class HelpPlugin(Star):
                                 "type": "command",
                                 "command": c.command,
                                 "aliases": c.aliases,
-<<<<<<< HEAD
-=======
                                 "description": c.description,
->>>>>>> 0043a9e (fix: wire custom command descriptions through API and improve cache invalidation)
                                 "is_admin": c.is_admin,
                                 "hidden": c.hidden,
                             }

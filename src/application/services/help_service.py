@@ -65,6 +65,16 @@ class HelpService:
     async def initialize(self):
         """Initialize service"""
         self._init_prefixes()
+
+        # Warm up cache: build command index JSON without rendering images
+        # Images will be lazily generated on first help menu request
+        try:
+            logger.info("Building command index cache...")
+            self.command_index.get_all_commands()
+            logger.info("Command index cache initialized successfully")
+        except Exception as exc:
+            logger.warning(f"Failed to build command index cache: {exc}")
+
         logger.info("Initialization completed")
 
     async def terminate(self):
