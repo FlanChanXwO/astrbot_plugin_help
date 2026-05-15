@@ -62,8 +62,8 @@
       "use_t2i": {
         "description": "使用 AstrBot 内置图片渲染",
         "type": "bool",
-        "default": false,
-        "hint": "开启后使用 AstrBot 内置的 t2i 服务渲染图片，无需安装 Playwright"
+        "default": true,
+        "hint": "开启后使用 AstrBot 内置的 t2i 服务渲染图片，无需安装 Playwright (推荐，性能更好)"
       },
       "html_theme": {
         "description": "HTML 主题",
@@ -101,11 +101,11 @@
         "type": "int",
         "slider": {
           "min": 1,
-          "max": 10,
+          "max": 20,
           "step": 1
         },
         "default": 2,
-        "hint": "同时进行的渲染任务数量限制，根据 CPU 调整"
+        "hint": "同时进行的渲染任务数量限制 (1-20)，根据 CPU 调整"
       },
       "giant_threshold": {
         "description": "巨型块阈值 (pt)",
@@ -117,6 +117,28 @@
         },
         "default": 1500,
         "hint": "超过此高度的插件将独占一行显示 (仅 Event/Filter 模式有效)"
+      },
+      "render_wait_timeout": {
+        "description": "渲染等待超时 (毫秒)",
+        "type": "int",
+        "slider": {
+          "min": 5000,
+          "max": 30000,
+          "step": 1000
+        },
+        "default": 10000,
+        "hint": "等待字体和图片加载的最大时间，网络较慢时可增加此值"
+      },
+      "render_image_timeout": {
+        "description": "单张图片加载超时 (毫秒)",
+        "type": "int",
+        "slider": {
+          "min": 1000,
+          "max": 10000,
+          "step": 500
+        },
+        "default": 5000,
+        "hint": "单张图片的最大加载时间，超时后将继续渲染"
       }
     }
   }

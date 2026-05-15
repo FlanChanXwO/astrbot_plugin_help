@@ -5,6 +5,7 @@ Coordinates all infrastructure to complete business use cases.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from pathlib import Path
@@ -61,14 +62,64 @@ class HelpService:
 
         # Internal state
         self._last_error: str | None = None
+        self._cache_warmup_task: asyncio.Task[None] | None = (
+            None  # Track background task for clean shutdown
+        )
 
     async def initialize(self):
         """Initialize service"""
         self._init_prefixes()
+
+        # Warm up cache: build command index JSON without rendering images
+        # Images will be lazily generated on first help menu request
+        # Use background task to avoid blocking plugin initialization
+
+        # Cancel existing warm-up task if still running (prevent concurrent tasks)
+        if self._cache_warmup_task and not self._cache_warmup_task.done():
+            logger.debug(
+                "Cancelling previous cache warm-up task before starting new one..."
+            )
+            self._cache_warmup_task.cancel()
+            try:
+                await asyncio.shield(self._cache_warmup_task)
+            except asyncio.CancelledError:
+                logger.debug("Previous cache warm-up task cancelled")
+
+        async def _warm_up_cache():
+            try:
+                logger.debug("Building command index cache...")
+                self.command_index.get_all_commands()
+                logger.debug("Command index cache initialized successfully")
+            except asyncio.CancelledError:
+                # Re-raise cancellation to ensure plugin shutdown is not blocked
+                logger.debug("Cache warm-up cancelled during initialization")
+                raise
+            except Exception:
+                # Log other exceptions but don't fail initialization
+                logger.exception(
+                    "Failed to build command index cache during initialization"
+                )
+
+        # Start cache warm-up in background without blocking initialization
+        # Store task reference for clean shutdown in terminate()
+        self._cache_warmup_task = asyncio.create_task(_warm_up_cache())
+
         logger.info("Initialization completed")
 
     async def terminate(self):
         """Terminate service"""
+        try:
+            # Cancel background cache warm-up task if still running
+            if self._cache_warmup_task and not self._cache_warmup_task.done():
+                logger.debug("Cancelling cache warm-up task during shutdown...")
+                self._cache_warmup_task.cancel()
+                try:
+                    await asyncio.shield(self._cache_warmup_task)
+                except asyncio.CancelledError:
+                    logger.debug("Cache warm-up task cancelled successfully")
+        except Exception as exc:
+            logger.warning(f"Failed to cancel cache warm-up task: {exc}")
+
         try:
             await self.renderer.close()
         except Exception as exc:

@@ -7,9 +7,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ...shared.constants import DefaultCFG
+
+# Rendering configuration validation boundaries
+# 这些常量定义了并发渲染任务的合理范围，防止配置错误导致系统问题
+MIN_CONCURRENT_TASKS = 1  # 最小值：防止信号量阻塞所有渲染
+MAX_CONCURRENT_TASKS = 20  # 最大值：防止并发任务过多导致系统过载
 
 
 class RenderingConfig(BaseModel):
@@ -27,6 +32,35 @@ class RenderingConfig(BaseModel):
     jpeg_quality: int = Field(default=95, description="JPEG图片质量")
     html_theme: str = Field(default="simple", description="HTML主题")
     use_t2i: bool = Field(default=False, description="使用AstrBot内置t2i渲染")
+    render_wait_timeout: int = Field(default=10000, description="渲染等待超时（毫秒）")
+    render_image_timeout: int = Field(
+        default=5000, description="单张图片加载超时（毫秒）"
+    )
+
+    @field_validator("max_concurrent_tasks")
+    @classmethod
+    def validate_max_concurrent_tasks(cls, v: int) -> int:
+        """验证并限制并发渲染数在合理范围内
+
+        边界值使用模块级常量定义，便于统一调整和发现
+        """
+        if v < MIN_CONCURRENT_TASKS:
+            raise ValueError(
+                f"max_concurrent_tasks must be at least {MIN_CONCURRENT_TASKS} to prevent blocking"
+            )
+        if v > MAX_CONCURRENT_TASKS:
+            raise ValueError(
+                f"max_concurrent_tasks must be at most {MAX_CONCURRENT_TASKS} to prevent overload"
+            )
+        return v
+
+    @field_validator("render_wait_timeout", "render_image_timeout")
+    @classmethod
+    def validate_timeouts(cls, v: int) -> int:
+        """验证超时配置为正数"""
+        if v <= 0:
+            raise ValueError("Timeout values must be positive integers")
+        return v
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> RenderingConfig:
