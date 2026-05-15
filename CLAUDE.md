@@ -139,8 +139,18 @@ class MyTool(FunctionTool):
 ## Conventions
 
 - **Formatting**: Ruff only (`ruff check .` and `ruff format .` before PR)
+- **Testing**: 
+  - Run `pytest` after every change to verify no regressions
+  - Add new tests for new features or bug fixes
+  - Use `pytest -v` for verbose output, `pytest -x` to stop on first failure
+  - Tests mock AstrBot modules via `sys.modules` injection in `conftest.py`
+- **Code Review Checklist**:
+  1. Format code: `ruff format .`
+  2. Lint code: `ruff check .`
+  3. Run tests: `pytest`
+  4. Update CHANGELOG.md for user-facing changes
+  5. Commit with clear message following conventional commit format
 - **Async**: Use `async def` for all handlers/hooks/tools. Use `aiohttp` or `httpx`, never `requests`
 - **Type hints**: Add for public methods and hook signatures
 - **Config**: Never hardcode secrets; expose in `_conf_schema.json`
 - **Plugin size**: Keep under 32MB. Use CDN for large resources
-- **Testing**: Tests mock AstrBot modules via `sys.modules` injection in `conftest.py`
