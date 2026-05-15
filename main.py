@@ -41,7 +41,7 @@ class HelpPlugin(Star):
 
     def _register_web_apis(self):
         """Register web APIs for custom groups page"""
-        plugin_name = "astrbot_plugin_help"
+        plugin_name = "astrbot_plugin_helpinfo"
         self.context.register_web_api(
             f"/{plugin_name}/custom-groups",
             self.api_get_custom_groups,

@@ -24,7 +24,7 @@ python tests/run_tests.py         # Standalone regex example tests
 python tests/run_tests.py -v      # Verbose output
 
 # Clear persistent cache for fresh state
-rm -f data/plugin_data/astrbot_plugin_help/cache/commands_cache.json
+rm -f data/plugin_data/astrbot_plugin_helpinfo/cache/commands_cache.json
 ```
 
 ## Architecture

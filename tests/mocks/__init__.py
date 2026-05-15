@@ -1,4 +1,4 @@
-"""Mock objects for testing astrbot_plugin_help."""
+"""Mock objects for testing astrbot_plugin_helpinfo."""
 
 from .mock_context import (
     MockCommandFilter,

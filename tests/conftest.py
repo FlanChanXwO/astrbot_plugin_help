@@ -1,4 +1,4 @@
-"""Pytest configuration and shared fixtures for astrbot_plugin_help tests."""
+"""Pytest configuration and shared fixtures for astrbot_plugin_helpinfo tests."""
 
 from __future__ import annotations
 

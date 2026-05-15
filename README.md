@@ -42,7 +42,7 @@
 
 2. 安装依赖：
    ```bash
-   cd astrbot_plugin_help
+   cd astrbot_plugin_helpinfo
    pip install -r requirements.txt
    ```
 

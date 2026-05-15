@@ -99,7 +99,7 @@ class TestSearchWithCustomGroups:
         cmd1 = MockCommandEntry(
             command="/help",
             description="显示帮助",
-            plugin="astrbot_plugin_help",
+            plugin="astrbot_plugin_helpinfo",
             custom_groups=["常用命令"]
         )
         cmd2 = MockCommandEntry(

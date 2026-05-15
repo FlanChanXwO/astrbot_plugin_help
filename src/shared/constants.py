@@ -37,7 +37,7 @@ class DefaultCFG:
         "session_controller",
         "builtin_commands",
         "astrbot-reminder",
-        "astrbot_plugin_help",
+        "astrbot_plugin_helpinfo",
     }
 
     # AI command blacklist
