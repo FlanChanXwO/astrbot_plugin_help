@@ -278,7 +278,7 @@ class TestSearchWithCustomGroups:
         assert rollback_cmd["description"] == "回滚应用版本"
         assert rollback_cmd["custom_groups"] == ["部署命令"]
 
-        print(f"验证描述传递:")
+        print("验证描述传递:")
         print(f"  - deploy_app: '{deploy_cmd['description']}'")
         print(f"  - rollback_app: '{rollback_cmd['description']}'")
         print("[OK] 测试通过")
@@ -375,9 +375,9 @@ class TestSearchWithCustomGroups:
         assert len(results) >= 1
         assert any(r["command"] == "/status" for r in results)
 
-        print(f"验证向后兼容:")
-        print(f"  - 空描述命令: 可搜索 ✅")
-        print(f"  - None 描述命令: 回退到空字符串 ✅")
+        print("验证向后兼容:")
+        print("  - 空描述命令: 可搜索 ✅")
+        print("  - None 描述命令: 回退到空字符串 ✅")
         print("[OK] 测试通过")
 
     def _find_matching_custom_groups(self, keyword: str) -> list:
