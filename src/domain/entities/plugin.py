@@ -46,14 +46,9 @@ class PluginCommandSummary:
         )
 
     def to_dict(self) -> dict:
-        """转换为模板可用的字典"""
-        # For virtual plugins (_custom_group_*), leave name empty to save space for description
-        name = self.plugin
-        if name.startswith("_custom_group_"):
-            name = ""
-
+        """转换为模板可用的字典（纯净数据，不包含显示逻辑）"""
         return {
-            "name": name,
+            "name": self.plugin,
             "display_name": self.display_name,
             "version": self.plugin_version,
             "desc": self.plugin_desc,

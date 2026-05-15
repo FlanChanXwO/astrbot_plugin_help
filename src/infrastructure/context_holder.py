@@ -27,10 +27,13 @@ def get_context() -> Context:
         Context 实例
 
     Raises:
-        RuntimeError: 如果 Context 未设置
+        ContextNotInitializedError: 如果 Context 未设置
     """
     if _context_instance is None:
-        raise RuntimeError("Context not initialized, call set_context() first")
+        from ..domain.exceptions import ContextNotInitializedError
+        raise ContextNotInitializedError(
+            "Context not initialized. Call set_context() first."
+        )
     return _context_instance
 
 

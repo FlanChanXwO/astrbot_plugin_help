@@ -59,13 +59,15 @@ class HTMLHelpRenderer:
                 self._browser = await self._playwright.chromium.launch()
                 logger.debug("Playwright 浏览器已启动")
             except ImportError as e:
-                raise RuntimeError(
+                from ...domain.exceptions import RenderError
+                raise RenderError(
                     "Playwright 未安装，无法使用浏览器渲染。"
                     "请运行 'pip install playwright' 和 'playwright install' 安装，"
                     "或在插件配置中开启 use_t2i 使用内置渲染服务"
                 ) from e
             except Exception as e:
-                raise RuntimeError(
+                from ...domain.exceptions import RenderError
+                raise RenderError(
                     f"Playwright 浏览器启动失败: {str(e)}。"
                     f"请运行 'playwright install' 安装浏览器，"
                     f"或在插件配置中开启 use_t2i 使用内置渲染服务"
@@ -126,7 +128,8 @@ class HTMLHelpRenderer:
 
             except Exception as e:
                 logger.error(f"HTML 渲染失败: {e}", exc_info=True)
-                raise RuntimeError(f"HTML 渲染失败: {str(e)}")
+                from ...domain.exceptions import RenderError
+                raise RenderError(f"HTML 渲染失败: {str(e)}")
 
     async def _render_with_t2i(self, html_content: str) -> bytes:
         """使用 AstrBot t2i 服务渲染 HTML 为图片
@@ -140,7 +143,8 @@ class HTMLHelpRenderer:
         try:
             from astrbot.core import html_renderer
         except ImportError:
-            raise RuntimeError(
+            from ...domain.exceptions import RenderError
+            raise RenderError(
                 "无法导入 AstrBot t2i 服务。请确保使用 AstrBot v4.5.0+ 版本，"
                 "或在插件配置中关闭 use_t2i 使用 Playwright 渲染"
             )
@@ -163,11 +167,13 @@ class HTMLHelpRenderer:
             if isinstance(result_path, str):
                 return Path(result_path).read_bytes()
             else:
-                raise RuntimeError(f"t2i 服务返回未知类型: {type(result_path)}")
+                from ...domain.exceptions import RenderError
+                raise RenderError(f"t2i 服务返回未知类型: {type(result_path)}")
 
         except Exception as e:
             logger.error(f"t2i 渲染失败: {e}", exc_info=True)
-            raise RuntimeError(
+            from ...domain.exceptions import RenderError
+            raise RenderError(
                 f"t2i 渲染失败: {str(e)}\n"
                 f"请确保 AstrBot 已正确启动并启用 t2i 服务，\n"
                 f"或在插件配置中关闭 use_t2i 使用 Playwright 渲染"
@@ -186,7 +192,8 @@ class HTMLHelpRenderer:
 
         # 如果浏览器为 None（说明 t2i 模式已启用），不应调用此方法
         if browser is None:
-            raise RuntimeError(
+            from ...domain.exceptions import RenderError
+            raise RenderError(
                 "Playwright 渲染不可用：当前配置已开启 use_t2i，"
                 "请确保 t2i 服务可用，或关闭 use_t2i 配置以使用 Playwright 渲染"
             )

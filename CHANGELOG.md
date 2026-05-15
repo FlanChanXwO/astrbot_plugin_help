@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.4] - 2026-05-15
+
+### Improved
+- 使用领域异常替代通用异常，提升错误处理的可维护性
+  - `ContextNotInitializedError` 用于 Context 未初始化
+  - `ConfigNotInitializedError` 用于配置未初始化
+  - `RenderError` 用于渲染相关错误
+- 优化数据处理流程，将显示逻辑从数据层移到模板层
+  - `to_dict()` 现在返回纯净数据，不包含显示逻辑
+  - 模板负责处理自定义命令组的显示规则
+- 自定义命令组卡片不再显示插件 ID，节省空间
+
 ## [1.0.3] - 2026-05-15
 
 ### Changed

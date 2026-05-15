@@ -27,9 +27,16 @@ def init_config(raw_config: dict[str, Any] | None) -> HelpPluginConfig | None:
 
 
 def get_config() -> HelpPluginConfig:
-    """获取配置单例"""
+    """获取配置单例
+
+    Raises:
+        ConfigNotInitializedError: 如果配置未初始化
+    """
     if _config_instance is None:
-        raise RuntimeError("Config not initialized, call init_config() first")
+        from ...domain.exceptions import ConfigNotInitializedError
+        raise ConfigNotInitializedError(
+            "Config not initialized. Call init_config() first."
+        )
     return _config_instance
 
 
