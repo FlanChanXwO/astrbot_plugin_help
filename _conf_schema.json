@@ -11,6 +11,12 @@
     "default": true,
     "hint": "开启后，AI执行命令结束会发送成功/失败结果提示"
   },
+  "enable_ai_self_command": {
+    "description": "允许AI以机器人自身身份执行命令",
+    "type": "bool",
+    "default": false,
+    "hint": "危险能力，默认关闭。开启后 execute_astrbot_command 的 actor=self 会把命令发送者改为机器人 self_id，并按 AstrBot 原权限链路判断权限；输出仍发送到当前聊天"
+  },
   "ai_command_blacklist": {
     "description": "AI命令调用黑名单",
     "type": "list",

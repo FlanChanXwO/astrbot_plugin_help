@@ -93,6 +93,7 @@ class MockDataFactory:
     @staticmethod
     def create_config(
         enable_ai_command_notify: bool = True,
+        enable_ai_self_command: bool = False,
         ignored_plugins: list[str] | None = None,
         custom_groups: list[dict] | None = None,
     ) -> dict:
@@ -100,6 +101,7 @@ class MockDataFactory:
         return {
             "enable_ai_command_notify": enable_ai_command_notify,
             "enable_ai_command_result": True,
+            "enable_ai_self_command": enable_ai_self_command,
             "ai_command_blacklist": ["admin_plugin"],
             "ignored_plugins": ignored_plugins or [],
             "regex": {"max_examples": 10},

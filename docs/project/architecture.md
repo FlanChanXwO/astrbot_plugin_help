@@ -70,14 +70,16 @@ Infrastructure  ->  CommandIndex, analyzers, HTMLHelpRenderer, CacheManager, Con
 
 ## `src/infrastructure/analysis/executor.py`
 
-`CommandExecutor` 负责 AI 命令执行：
+`CommandExecutor` 负责 AI 命令调度：
 
-- 构建 synthetic `AstrMessageEvent`，通过 AstrBot 的 `WakingCheckStage` + `ProcessStage` 执行
+- 构建 synthetic `AstrMessageEvent`，先通过 AstrBot 的 `WakingCheckStage` 完成命令匹配和权限过滤
+- 同步返回值只表示是否成功提交后台执行；后台任务从 `ProcessStage` 继续跑完整 AstrBot pipeline，命令最终输出由管道发送到当前聊天
 - 正则命令使用缓存的示例文本或从模式派生的文本作为 `message_str`
 - 检测通用处理器（`on_message`、`on_all_message` 等）— 它们匹配几乎所有消息，不代表命令属于特定插件
 - 检测转发插件和自定义命令组命令
 - 黑名单检查跳过通用处理器，只扫描非通用处理器的 `handler_module_path`
 - 阻止递归调用 `execute_astrbot_command`
+- `actor=self` 需要显式开启 `enable_ai_self_command`，只改写内部事件发送者为 bot `self_id`，不自动提权
 
 ## `src/infrastructure/rendering/html_renderer.py`
 
@@ -149,7 +151,7 @@ star_handlers_registry -> CommandIndex._build_index() -> _command_cache (dict)
 ## AI Tool 系统
 
 - `search_astrbot_command`：命令发现，使用 jieba 分词、多维评分、权限过滤
-- `execute_astrbot_command`：安全执行，含黑名单检查（跳过通用处理器）、递归调用阻止和转发插件检测；正则命令使用示例文本作为 `message_str` 以触发 `RegexFilter` 匹配
+- `execute_astrbot_command`：安全调度，含黑名单检查（跳过通用处理器）、递归调用阻止和转发插件检测；正则命令使用示例文本作为 `message_str` 以触发 `RegexFilter` 匹配；同步返回值只表示是否成功提交后台执行，不等待命令最终输出
 - `list_all_plugins_and_commands`：完整命令清单，供 AI 上下文使用
 
 ## 安全边界
@@ -157,3 +159,4 @@ star_handlers_registry -> CommandIndex._build_index() -> _command_cache (dict)
 - 黑名单检查必须跳过通用处理器（`on_message` 等），因为通用处理器匹配几乎所有消息，不代表命令属于黑名单插件
 - 递归调用 `execute_astrbot_command` 被阻止
 - 自定义命令组命令即使只匹配到通用处理器也不应被黑名单拦截
+- `actor=self` 默认禁用；启用后仅把内部命令事件发送者改为 bot `self_id`，权限仍由 AstrBot 原管道判断，不自动授予管理员权限

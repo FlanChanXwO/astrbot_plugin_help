@@ -91,6 +91,8 @@ class MockHandler:
         self.handler_module_path = handler_module_path
         self.event_type = event_type
         self.extras_configs = extras_configs or {}
+        self.handler_full_name = f"{handler_module_path}.{handler_name}"
+        self.handler = None
 
 
 class MockContext:
@@ -115,7 +117,20 @@ class MockContext:
 
     def get_config(self, umo: str | None = None) -> dict:
         """获取配置."""
-        return {"plugin_set": ["*"], "wake_prefix": ["/"]}
+        return {
+            "admins_id": [],
+            "plugin_set": ["*"],
+            "wake_prefix": ["/"],
+            "platform_settings": {
+                "ignore_bot_self_message": True,
+                "no_permission_reply": True,
+            },
+            "provider_settings": {
+                "enable": False,
+                "identifier": "",
+                "prompt_prefix": "",
+            },
+        }
 
     def get_llm_tool_manager(self) -> Any | None:
         """获取 LLM 工具管理器."""

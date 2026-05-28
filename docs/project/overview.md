@@ -19,7 +19,7 @@
 | `/helps`、`/帮助` | 命令 | 渲染帮助图片 |
 | `/help_refresh`、`/刷新帮助缓存` | 命令（管理员） | 刷新命令索引缓存 |
 | `search_astrbot_command` | LLM tool | 命令搜索 |
-| `execute_astrbot_command` | LLM tool | 命令执行 |
+| `execute_astrbot_command` | LLM tool | 命令异步调度 |
 | `list_all_plugins_and_commands` | LLM tool | 命令清单 |
 | `/astrbot_plugin_helpinfo/custom-groups` | Web API | 自定义命令组 CRUD |
 

@@ -1,11 +1,12 @@
-"""Tests for the `actor` parameter of execute_astrbot_command / CommandExecutor.execute()."""
+"""execute_astrbot_command 的 actor 与异步调度测试。"""
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 import src.infrastructure.analysis.executor as executor_module
@@ -19,32 +20,69 @@ from src.infrastructure.config.datamodels import CustomGroupCommand, CustomGroup
 from src.infrastructure.context_holder import clear_context, set_context
 from src.infrastructure.utils.paths import init_plugin_paths
 
-from tests.mocks import (
-    MockAstrMessageEvent,
-    MockContext,
-    MockHandler,
-    MockMessageEventResult,
-)
+from tests.mocks import MockAstrMessageEvent, MockContext, MockHandler
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
+
+class _Plain:
+    """测试用 Plain，避免依赖真实 AstrBot 消息段。"""
+
+    def __init__(self, text: str):
+        self.text = text
+
+
+class _PipelineContext:
+    """测试用 PipelineContext。"""
+
+    def __init__(self, astrbot_config, plugin_manager, astrbot_config_id):
+        self.astrbot_config = astrbot_config
+        self.plugin_manager = plugin_manager
+        self.astrbot_config_id = astrbot_config_id
+
+
+class _WakingCheckStage:
+    """按测试事件上的 extra 模拟 AstrBot 唤醒阶段。"""
+
+    handlers = [MockHandler("help", handler_module_path="help_plugin")]
+
+    async def initialize(self, ctx) -> None:
+        self.ctx = ctx
+
+    async def process(self, event) -> None:
+        event.set_extra("activated_handlers", self.handlers)
+
+
+class _Scheduler:
+    """后台调度器 mock，阻塞到测试显式放行。"""
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    command_events: list[MockAstrMessageEvent] = []
+
+    def __init__(self, ctx):
+        self.ctx = ctx
+        self.stages = [type("ProcessStage", (), {})()]
+
+    async def initialize(self) -> None:
+        return None
+
+    async def _process_stages(self, event, from_stage=0) -> None:
+        self.command_events.append(event)
+        self.started.set()
+        await self.release.wait()
+        await event.send(f"后台结果:{event.get_message_str()}")
 
 
 @pytest.fixture(autouse=True)
 def _setup_singletons():
     """Set up required singletons before each test, tear down after."""
-    # 初始化运行上下文，保证执行器能读取配置和 AstrBot mock。
     mock_ctx = MockContext()
     set_context(mock_ctx)
 
-    # 使用真实临时目录，避免持久化路径相关测试误写插件目录。
     tmpdir = tempfile.TemporaryDirectory()
     plugin_dir = Path(tmpdir.name) / "astrbot_plugin_helpinfo"
     plugin_dir.mkdir(parents=True, exist_ok=True)
     init_plugin_paths(plugin_dir)
 
-    # 将 AstrBot 数据目录固定到临时目录，测试结束后统一清理。
     data_dir = Path(tmpdir.name) / "data" / "plugin_data" / "astrbot_plugin_helpinfo"
     data_dir.mkdir(parents=True, exist_ok=True)
     patcher = patch(
@@ -53,7 +91,6 @@ def _setup_singletons():
     )
     patcher.start()
 
-    # init_config(None) 会创建默认配置。
     cfg = init_config(None)
     cfg.custom_groups = [
         CustomGroupConfig(
@@ -61,11 +98,25 @@ def _setup_singletons():
             commands=[CustomGroupCommand(command="help", description="测试命令")],
         )
     ]
-    executor_module.MessageEventResult = MockMessageEventResult
 
-    yield
+    _Scheduler.started = asyncio.Event()
+    _Scheduler.release = asyncio.Event()
+    _Scheduler.command_events = []
+    _WakingCheckStage.handlers = [
+        MockHandler("help", handler_module_path="help_plugin")
+    ]
+    with (
+        patch.object(executor_module, "Plain", _Plain),
+        patch.object(executor_module, "PipelineContext", _PipelineContext),
+        patch.object(executor_module, "WakingCheckStage", _WakingCheckStage),
+        patch.object(
+            executor_module.CommandExecutor,
+            "_create_pipeline_scheduler",
+            lambda self, pipeline_context: _Scheduler(pipeline_context),
+        ),
+    ):
+        yield
 
-    # 清理单例，避免跨测试污染。
     patcher.stop()
     clear_context()
     clear_config()
@@ -78,18 +129,6 @@ def _setup_singletons():
 def mock_event():
     """Provide a fresh MockAstrMessageEvent."""
     return MockAstrMessageEvent(message="/help")
-
-
-@pytest.fixture
-def executor():
-    """Provide a fresh CommandExecutor singleton."""
-    reset_command_executor()
-    return CommandExecutor()
-
-
-# ---------------------------------------------------------------------------
-# Tests: Signature & default
-# ---------------------------------------------------------------------------
 
 
 class TestActorSignatureAndDefault:
@@ -110,11 +149,6 @@ class TestActorSignatureAndDefault:
         assert sig.parameters["actor"].default == "user"
 
 
-# ---------------------------------------------------------------------------
-# Tests: Early returns (before any chat I/O) — both actors
-# ---------------------------------------------------------------------------
-
-
 class TestEarlyReturnsBothActors:
     """Early-return paths are identical for both actors."""
 
@@ -128,7 +162,7 @@ class TestEarlyReturnsBothActors:
 
     @pytest.mark.asyncio
     async def test_missing_command_self(self, mock_event):
-        """Empty command returns error for self actor."""
+        """Empty command returns error before self actor config validation."""
         executor = CommandExecutor()
         result = await executor.execute(event=mock_event, command="", actor="self")
         assert result["success"] is False
@@ -146,7 +180,7 @@ class TestEarlyReturnsBothActors:
 
     @pytest.mark.asyncio
     async def test_recursive_call_blocked_self(self, mock_event):
-        """Recursive call blocked for self actor."""
+        """Recursive call blocked before self actor config validation."""
         executor = CommandExecutor()
         result = await executor.execute(
             event=mock_event, command="execute_astrbot_command", actor="self"
@@ -155,281 +189,168 @@ class TestEarlyReturnsBothActors:
         assert result["error"] == "recursive_call_blocked"
 
 
-# ---------------------------------------------------------------------------
-# Tests: actor="user" — chat output + full data
-# ---------------------------------------------------------------------------
-
-
-class TestActorUserChatOutput:
-    """actor='user' sends notifications and results to chat."""
+class TestAsyncDispatch:
+    """命令执行只等待调度成功，不等待后台结果。"""
 
     @pytest.mark.asyncio
-    async def test_pre_notification_sent(self, mock_event):
-        """Pre-exec notification IS sent for user actor."""
+    async def test_user_actor_returns_after_dispatch(self, mock_event):
+        """user actor 调度后立即返回，后台稍后发送结果。"""
         executor = CommandExecutor()
-        executor.cfg.enable_ai_command_notify = True
-
-        with patch.object(
-            executor, "_execute_command_via_pipeline", new_callable=AsyncMock
-        ) as mock_pipeline:
-            mock_pipeline.return_value = {
-                "matched_handlers": [
-                    MockHandler("on_message", handler_module_path="builtin_commands"),
-                    MockHandler(
-                        "forward_help", handler_module_path="help_forward_adapter"
-                    ),
-                ],
-                "messages": [],
-                "raw_results": [],
-                "result_type": "none",
-                "stopped": False,
-                "had_result": False,
-            }
-            await executor.execute(event=mock_event, command="/help", actor="user")
-
-        pre_msgs = [
-            m
-            for m in mock_event.sent_messages
-            if "正在执行命令" in str(m.get("content", ""))
-        ]
-        assert len(pre_msgs) == 1
-
-    @pytest.mark.asyncio
-    async def test_result_notification_sent(self, mock_event):
-        """Post-exec notification IS sent for user actor."""
-        executor = CommandExecutor()
-        executor.cfg.enable_ai_command_result = True
-
-        with patch.object(
-            executor, "_execute_command_via_pipeline", new_callable=AsyncMock
-        ) as mock_pipeline:
-            mock_pipeline.return_value = {
-                "matched_handlers": [
-                    MockHandler("on_message", handler_module_path="builtin_commands"),
-                    MockHandler(
-                        "forward_help", handler_module_path="help_forward_adapter"
-                    ),
-                ],
-                "messages": ["output"],
-                "raw_results": [],
-                "result_type": "message",
-                "stopped": False,
-                "had_result": True,
-            }
-            result = await executor.execute(
-                event=mock_event, command="/help", actor="user"
-            )
-
-        assert result["success"] is True, result
-        result_msgs = [
-            m
-            for m in mock_event.sent_messages
-            if str(m.get("content", "")).startswith("执行命令")
-        ]
-        assert len(result_msgs) == 1
-
-    @pytest.mark.asyncio
-    async def test_raw_result_forwarding(self, mock_event):
-        """Raw results ARE sent to chat for user actor."""
-        executor = CommandExecutor()
-        executor.cfg.enable_ai_command_result = False
         executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
 
-        mock_result = MockMessageEventResult()
-        mock_result.chain = True
-
-        with patch.object(
-            executor, "_execute_command_via_pipeline", new_callable=AsyncMock
-        ) as mock_pipeline:
-            mock_pipeline.return_value = {
-                "matched_handlers": [
-                    MockHandler("on_message", handler_module_path="builtin_commands"),
-                    MockHandler(
-                        "forward_help", handler_module_path="help_forward_adapter"
-                    ),
-                ],
-                "messages": ["result"],
-                "raw_results": [mock_result],
-                "result_type": "chain",
-                "stopped": False,
-                "had_result": True,
-            }
-            result = await executor.execute(
-                event=mock_event, command="/help", actor="user"
-            )
+        result = await executor.execute(event=mock_event, command="/help", actor="user")
+        await asyncio.sleep(0)
 
         assert result["success"] is True, result
+        assert result["dispatched"] is True
+        assert result["result_type"] == "dispatched"
+        assert result["messages"] == []
+        assert _Scheduler.started.is_set()
+        assert not any(m.get("type") == "result" for m in mock_event.sent_messages)
+
+        _Scheduler.release.set()
+        await asyncio.gather(*executor._background_tasks)
         assert any(m.get("type") == "result" for m in mock_event.sent_messages)
 
     @pytest.mark.asyncio
-    async def test_returns_full_data(self, mock_event):
-        """User actor returns complete result dict."""
+    async def test_result_notification_means_dispatched(self, mock_event):
+        """结果通知语义改为已提交后台执行。"""
         executor = CommandExecutor()
-        executor.cfg.enable_ai_command_result = False
         executor.cfg.enable_ai_command_notify = False
-
-        with patch.object(
-            executor, "_execute_command_via_pipeline", new_callable=AsyncMock
-        ) as mock_pipeline:
-            mock_pipeline.return_value = {
-                "matched_handlers": [
-                    MockHandler("on_message", handler_module_path="builtin_commands"),
-                    MockHandler(
-                        "forward_help", handler_module_path="help_forward_adapter"
-                    ),
-                ],
-                "messages": ["a", "b"],
-                "raw_results": [],
-                "result_type": "message",
-                "stopped": False,
-                "had_result": True,
-            }
-            result = await executor.execute(
-                event=mock_event, command="/help", actor="user"
-            )
-
-        assert result["command"] == "/help"
-        assert result["success"] is True, result
-        assert len(result["matched_handlers"]) == 2
-        assert len(result["messages"]) == 2
-        assert result["result_type"] == "message"
-
-
-# ---------------------------------------------------------------------------
-# Tests: actor="self" — chat output + full data (same as "user")
-# ---------------------------------------------------------------------------
-
-
-class TestActorSelfChatOutput:
-    """actor='self' also sends notifications and results to chat, same as 'user'."""
-
-    @pytest.mark.asyncio
-    async def test_pre_notification_sent(self, mock_event):
-        """Pre-exec notification IS sent for self actor."""
-        executor = CommandExecutor()
-        executor.cfg.enable_ai_command_notify = True
-
-        with patch.object(
-            executor, "_execute_command_via_pipeline", new_callable=AsyncMock
-        ) as mock_pipeline:
-            mock_pipeline.return_value = {
-                "matched_handlers": [
-                    MockHandler("on_message", handler_module_path="builtin_commands"),
-                    MockHandler(
-                        "forward_help", handler_module_path="help_forward_adapter"
-                    ),
-                ],
-                "messages": [],
-                "raw_results": [],
-                "result_type": "none",
-                "stopped": False,
-                "had_result": False,
-            }
-            await executor.execute(event=mock_event, command="/help", actor="self")
-
-        pre_msgs = [
-            m
-            for m in mock_event.sent_messages
-            if "正在执行命令" in str(m.get("content", ""))
-        ]
-        assert len(pre_msgs) == 1
-
-    @pytest.mark.asyncio
-    async def test_result_notification_sent(self, mock_event):
-        """Post-exec notification IS sent for self actor."""
-        executor = CommandExecutor()
         executor.cfg.enable_ai_command_result = True
 
-        with patch.object(
-            executor, "_execute_command_via_pipeline", new_callable=AsyncMock
-        ) as mock_pipeline:
-            mock_pipeline.return_value = {
-                "matched_handlers": [
-                    MockHandler("on_message", handler_module_path="builtin_commands"),
-                    MockHandler(
-                        "forward_help", handler_module_path="help_forward_adapter"
-                    ),
-                ],
-                "messages": ["output"],
-                "raw_results": [],
-                "result_type": "message",
-                "stopped": False,
-                "had_result": True,
-            }
-            result = await executor.execute(
-                event=mock_event, command="/help", actor="self"
-            )
+        result = await executor.execute(event=mock_event, command="/help", actor="user")
 
         assert result["success"] is True, result
-        result_msgs = [
-            m
+        assert any(
+            "已提交后台执行" in str(m.get("content", ""))
             for m in mock_event.sent_messages
-            if str(m.get("content", "")).startswith("执行命令")
-        ]
-        assert len(result_msgs) == 1
+        )
+        _Scheduler.release.set()
+        await asyncio.gather(*executor._background_tasks)
 
     @pytest.mark.asyncio
-    async def test_raw_result_forwarding(self, mock_event):
-        """Raw results ARE sent to chat for self actor."""
+    async def test_pre_notification_still_sent(self, mock_event):
+        """执行前通知仍按配置发送。"""
         executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = True
         executor.cfg.enable_ai_command_result = False
+
+        await executor.execute(event=mock_event, command="/help", actor="user")
+
+        assert any(
+            "正在执行命令" in str(m.get("content", ""))
+            for m in mock_event.sent_messages
+        )
+        _Scheduler.release.set()
+        await asyncio.gather(*executor._background_tasks)
+
+
+class TestActorSelf:
+    """actor=self 的安全开关与身份改写。"""
+
+    @pytest.mark.asyncio
+    async def test_self_actor_disabled_by_default(self, mock_event):
+        """self actor 默认禁用。"""
+        executor = CommandExecutor()
+        result = await executor.execute(event=mock_event, command="/help", actor="self")
+        assert result["success"] is False
+        assert result["error"] == "self_actor_disabled"
+        assert not _Scheduler.started.is_set()
+
+    @pytest.mark.asyncio
+    async def test_self_actor_requires_self_id(self):
+        """启用 self actor 后仍要求事件携带 self_id。"""
+        event = MockAstrMessageEvent(message="/help", self_id="")
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_self_command = True
+
+        result = await executor.execute(event=event, command="/help", actor="self")
+
+        assert result["success"] is False
+        assert result["error"] == "missing_self_id"
+        assert not _Scheduler.started.is_set()
+
+    @pytest.mark.asyncio
+    async def test_self_actor_rewrites_sender_and_uses_original_chat(self, mock_event):
+        """self actor 使用 bot self_id 作为发送者，结果仍发回当前聊天。"""
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_self_command = True
         executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
 
-        mock_result = MockMessageEventResult()
-        mock_result.chain = True
-
-        with patch.object(
-            executor, "_execute_command_via_pipeline", new_callable=AsyncMock
-        ) as mock_pipeline:
-            mock_pipeline.return_value = {
-                "matched_handlers": [
-                    MockHandler("on_message", handler_module_path="builtin_commands"),
-                    MockHandler(
-                        "forward_help", handler_module_path="help_forward_adapter"
-                    ),
-                ],
-                "messages": ["result"],
-                "raw_results": [mock_result],
-                "result_type": "chain",
-                "stopped": False,
-                "had_result": True,
-            }
-            result = await executor.execute(
-                event=mock_event, command="/help", actor="self"
-            )
+        result = await executor.execute(event=mock_event, command="/help", actor="self")
+        await asyncio.sleep(0)
 
         assert result["success"] is True, result
+        command_event = _Scheduler.command_events[0]
+        assert command_event.get_sender_id() == mock_event.get_self_id()
+        assert mock_event.get_sender_id() == "123456"
+
+        _Scheduler.release.set()
+        await asyncio.gather(*executor._background_tasks)
         assert any(m.get("type") == "result" for m in mock_event.sent_messages)
 
     @pytest.mark.asyncio
-    async def test_returns_full_data(self, mock_event):
-        """Self actor returns complete result dict."""
+    async def test_user_actor_keeps_sender(self, mock_event):
+        """user actor 不改写发送者。"""
         executor = CommandExecutor()
-        executor.cfg.enable_ai_command_result = False
         executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
 
-        with patch.object(
-            executor, "_execute_command_via_pipeline", new_callable=AsyncMock
-        ) as mock_pipeline:
-            mock_pipeline.return_value = {
-                "matched_handlers": [
-                    MockHandler("on_message", handler_module_path="builtin_commands"),
-                    MockHandler(
-                        "forward_help", handler_module_path="help_forward_adapter"
-                    ),
-                ],
-                "messages": ["a", "b"],
-                "raw_results": [],
-                "result_type": "message",
-                "stopped": False,
-                "had_result": True,
-            }
-            result = await executor.execute(
-                event=mock_event, command="/help", actor="self"
-            )
+        result = await executor.execute(event=mock_event, command="/help", actor="user")
+        await asyncio.sleep(0)
 
-        assert result["command"] == "/help"
         assert result["success"] is True, result
-        assert len(result["matched_handlers"]) == 2
-        assert len(result["messages"]) == 2
-        assert result["result_type"] == "message"
+        command_event = _Scheduler.command_events[0]
+        assert command_event.get_sender_id() == "123456"
+
+        _Scheduler.release.set()
+        await asyncio.gather(*executor._background_tasks)
+
+
+class TestNoDispatchOnRejectedCommand:
+    """拒绝路径不会创建后台任务。"""
+
+    @pytest.mark.asyncio
+    async def test_generic_only_not_dispatched(self, mock_event):
+        """只命中通用处理器时不调度后台执行。"""
+        _WakingCheckStage.handlers = [
+            MockHandler("on_message", handler_module_path="builtin_commands")
+        ]
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(event=mock_event, command="/unknown")
+
+        assert result["success"] is False
+        assert result["error"] == "command_not_found"
+        assert not _Scheduler.started.is_set()
+
+    @pytest.mark.asyncio
+    async def test_blacklisted_command_not_dispatched(self, mock_event):
+        """黑名单命令不调度后台执行。"""
+        _WakingCheckStage.handlers = [
+            MockHandler("admin", handler_module_path="admin_plugin.main")
+        ]
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+        executor.cfg.ai_command_blacklist = {"admin_plugin"}
+
+        result = await executor.execute(event=mock_event, command="/admin")
+
+        assert result["success"] is False
+        assert result["error"] == "blacklisted_plugin"
+        assert not _Scheduler.started.is_set()
+
+    @pytest.mark.asyncio
+    async def test_invalid_actor_not_dispatched(self, mock_event):
+        """非法 actor 不调度后台执行。"""
+        executor = CommandExecutor()
+        result = await executor.execute(event=mock_event, command="/help", actor="bot")
+        assert result["success"] is False
+        assert result["error"] == "invalid_actor"
+        assert not _Scheduler.started.is_set()

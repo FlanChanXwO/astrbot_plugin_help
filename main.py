@@ -174,12 +174,15 @@ class HelpPlugin(Star):
                 - Avoid calling commands that require @user, e.g., "设置被鹿 开 @user"
             actor (str): Execution role. Options:
                 - "user" (default): Execute on behalf of the user.
-                - "self": Execute for your own purposes (e.g., fact-checking, gathering
-                  information). Results and notifications are sent to the chat in both modes;
-                  the full output is also returned in this JSON response.
+                - "self": Execute as the bot self_id. This is disabled unless
+                  enable_ai_self_command is explicitly enabled. Permissions are still
+                  decided by AstrBot's normal pipeline; this does not grant admin.
+                  Results and notifications are sent to the current chat.
 
         Returns:
-            Command execution result, including success status, matched handler, generated messages, etc.
+            Dispatch result only. success=true means the command was accepted and submitted
+            to AstrBot's background pipeline; long-running command output may arrive later
+            in the chat and is not included in this JSON response.
         """
         service = get_help_service()
         return await service.execute_command(event, command, actor)

@@ -59,7 +59,8 @@
 | 配置项 | 类型 | 说明 | 默认值 |
 |--------|------|------|--------|
 | `enable_ai_command_notify` | 布尔值 | AI 执行命令前发送通知 | `true` |
-| `enable_ai_command_result` | 布尔值 | AI 执行命令后发送结果通知 | `true` |
+| `enable_ai_command_result` | 布尔值 | AI 命令调度成功/失败发送提示；命令最终输出由后台命令自己发送 | `true` |
+| `enable_ai_self_command` | 布尔值 | 允许 AI 使用 `actor=self` 以机器人自身 `self_id` 执行命令，权限仍由 AstrBot 正常判断 | `false` |
 | `ai_command_blacklist` | 列表 | 禁止 AI 调用的插件列表 | 见配置说明 |
 
 ### 黑名单配置
@@ -127,6 +128,8 @@
 
 **AI 工具特性：**
 - 自动检测用户权限（管理员可查看所有命令，普通用户仅查看普通命令）
+- `execute_astrbot_command` 只返回调度结果，不等待命令最终输出；图片生成等长耗时命令会在后台继续执行并自行把结果发到当前聊天
+- `actor=self` 默认禁用；显式开启 `enable_ai_self_command` 后，命令发送者改为机器人 `self_id`，但不会自动提权
 - 正则命令自动派生示例文本执行，确保 `RegexFilter` 能正确匹配
 - 自定义命令组命令即使只匹配通用处理器也会返回成功（转发命令）
 - 黑名单插件自动拦截，防止 AI 调用敏感命令
