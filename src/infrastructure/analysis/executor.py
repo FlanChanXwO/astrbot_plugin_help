@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 from typing import TYPE_CHECKING
 
 from astrbot.api.event import AstrMessageEvent
@@ -170,12 +171,19 @@ class CommandExecutor:
                 return command[len(prefix) :].strip()
         return command.strip()
 
+    async def _plain_result(self, event: AstrMessageEvent, text: str) -> None:
+        """兼容同步和异步的 plain_result，实现测试与运行时一致投递。"""
+        result = event.plain_result(text)
+        if inspect.isawaitable(result):
+            await result
+
     async def execute(
         self,
         event: AstrMessageEvent,
         command: str,
         allowed_plugins: set[str] | None = None,
         search_suggestions_func=None,
+        actor: str = "user",
     ) -> dict:
         """
         执行 AstrBot 命令
@@ -185,11 +193,13 @@ class CommandExecutor:
             command: 要执行的命令
             allowed_plugins: 允许的插件集合
             search_suggestions_func: 搜索建议的回调函数
+            actor: 执行角色，"user"（默认）或 "self"。两者行为相同，仅用于标识调用者身份。
 
         Returns:
             执行结果字典
         """
         command_text = command.strip()
+
         if not command_text:
             return {
                 "command": "",
@@ -234,7 +244,7 @@ class CommandExecutor:
             # 执行前通知
             if self.cfg.enable_ai_command_notify:
                 try:
-                    event.plain_result(f"正在执行命令: {final_command}")
+                    await self._plain_result(event, f"正在执行命令: {final_command}")
                 except Exception as notify_exc:
                     logger.warning(f"发送执行前通知失败: {notify_exc}")
 
@@ -342,8 +352,9 @@ class CommandExecutor:
                     )
                     if self.cfg.enable_ai_command_result:
                         try:
-                            event.plain_result(
-                                f"执行命令 {final_command} 失败，原因：{error_msg}"
+                            await self._plain_result(
+                                event,
+                                f"执行命令 {final_command} 失败，原因：{error_msg}",
                             )
                         except Exception as result_exc:
                             logger.warning(f"发送执行失败通知失败: {result_exc}")
@@ -362,6 +373,8 @@ class CommandExecutor:
             if not is_forwarding_command:
                 blacklisted_handlers = []
                 for handler in matched_handlers:
+                    if is_generic_handler(handler):
+                        continue
                     plugin_name = getattr(handler, "handler_module_path", "")
                     if plugin_name and any(
                         plugin_name.startswith(bl) or plugin_name == bl
@@ -376,8 +389,9 @@ class CommandExecutor:
                     logger.warning(f"AI尝试调用黑名单插件命令: {blacklisted_handlers}")
                     if self.cfg.enable_ai_command_result:
                         try:
-                            event.plain_result(
-                                f"执行命令 {final_command} 失败，原因：{error_msg}"
+                            await self._plain_result(
+                                event,
+                                f"执行命令 {final_command} 失败，原因：{error_msg}",
                             )
                         except Exception as result_exc:
                             logger.warning(f"发送执行失败通知失败: {result_exc}")
@@ -392,7 +406,7 @@ class CommandExecutor:
                         "suggestions": [],
                     }
 
-            # 发送命令结果
+            # actor 当前只标识调用者身份，不改变结果投递路径。
             if raw_results:
                 for result in raw_results:
                     if isinstance(result, MessageEventResult) and result.chain:
@@ -405,8 +419,8 @@ class CommandExecutor:
                 error_msg = f"未找到或无法执行指令 '{stripped_command}'"
                 if self.cfg.enable_ai_command_result:
                     try:
-                        event.plain_result(
-                            f"执行命令 {final_command} 失败，原因：{error_msg}"
+                        await self._plain_result(
+                            event, f"执行命令 {final_command} 失败，原因：{error_msg}"
                         )
                     except Exception as result_exc:
                         logger.warning(f"发送执行失败通知失败: {result_exc}")
@@ -436,14 +450,16 @@ class CommandExecutor:
             if self.cfg.enable_ai_command_result:
                 try:
                     if is_forwarding_command:
-                        event.plain_result(
-                            f"执行转发命令 {final_command}，已通过转发插件发送"
+                        await self._plain_result(
+                            event, f"执行转发命令 {final_command}，已通过转发插件发送"
                         )
                     elif success:
-                        event.plain_result(f"执行命令 {final_command} 成功")
+                        await self._plain_result(
+                            event, f"执行命令 {final_command} 成功"
+                        )
                     else:
-                        event.plain_result(
-                            f"执行命令 {final_command} 失败，原因：{message}"
+                        await self._plain_result(
+                            event, f"执行命令 {final_command} 失败，原因：{message}"
                         )
                 except Exception as result_exc:
                     logger.warning(f"发送执行结果通知失败: {result_exc}")

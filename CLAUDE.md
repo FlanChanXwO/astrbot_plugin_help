@@ -1,156 +1,79 @@
-# CLAUDE.md
+# CLAUDE.md - astrbot_plugin_helpinfo
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+本文件只保留 Claude 协作入口规则。项目细节按需阅读 `docs/project/`，开发维护规则优先阅读 `docs/dev/maintenance.md`。
 
-## Project Overview
+## 沟通语言
 
-This is **`astrbot_plugin_help`** — an AstrBot plugin that provides:
-- A visual help menu rendered as JPEG images (`/helps`)
-- Command search with jieba tokenization and multi-dimensional scoring
-- AI command execution tools (`execute_astrbot_command`, `search_astrbot_command`)
-- Custom command groups managed via WebUI
+必须使用中文与用户交流。
 
-It runs as an AstrBot "Star" plugin. AstrBot is a multi-platform LLM chatbot framework.
+## 项目形态
 
-## Development Commands
+- **语言**: Python 3.10+
+- **框架**: AstrBot plugin system
+- **插件职责**: 可视化帮助菜单渲染、命令搜索（jieba 分词 + 多维评分）、AI 命令发现与执行、自定义命令组管理
+- **许可证**: AGPL
+
+主要目录：
+
+```text
+main.py                         插件入口（HelpPlugin Star 子类），注册命令/LLM tool/Web API
+_conf_schema.json               配置 schema
+src/application/services/       HelpService 编排用例
+src/infrastructure/analysis/    CommandIndex、CommandAnalyzer、CommandExecutor
+src/infrastructure/rendering/   HTMLHelpRenderer、HTMLTemplateManager、CacheManager
+src/infrastructure/config/      ConfigManager 配置与自定义命令组持久化
+src/domain/entities/            CommandEntry、RenderNode、PluginCommandSummary
+templates/simple/               Jinja2 帮助模板与 CSS
+tests/                          测试入口，conftest.py 含 mock 注入
+```
+
+## 阅读入口
+
+- 任何改动前先看：`docs/dev/maintenance.md`
+- 需要项目背景时看：`docs/project/overview.md`
+- 修改架构、编排链路、安全边界或 AI tool 系统时看：`docs/project/architecture.md`
+- 修改配置项时同步核对：`_conf_schema.json`、`README.md`、`docs/project/configuration.md`
+- 修改测试、lint、贡献流程或工程约束时看：`docs/dev/testing.md`、`docs/dev/contributing.md`、`docs/dev/engineering-principles.md`
+
+## 硬约束
+
+- `main.py` 只负责插件入口、生命周期和编排；复杂索引、渲染组装和命令执行逻辑放在 `src/` 对应模块。
+- 不要在插件目录创建或依赖 `<plugin>/data` 作为运行态目录；插件数据目录使用 AstrBot 提供的 `StarTools.get_data_dir()`。
+- 黑名单检查必须跳过通用处理器（`on_message` 等），因为通用处理器匹配几乎所有消息，不代表命令属于黑名单插件。
+- 递归调用 `execute_astrbot_command` 被阻止。
+- 自定义命令组命令即使只匹配到通用处理器也不应被黑名单拦截。
+- 本插件不提供插件管理功能（安装/卸载/启用/禁用）、不修改 AstrBot 核心行为、不直接发送消息到平台。
+- 其他架构细节、配置边界和维护规则不要写进本文件，放到 `docs/project/` 或 `docs/dev/` 对应章节。
+
+## 文档纪律
+
+- 文档是改动的一部分。代码改动导致现有说明失真时，必须在同一 patch 中更新相关 `docs/`。
+- 命令行为、配置项、黑名单规则、渲染模板、安全边界、测试或 lint 流程变化时，通常需要更新文档。
+- repo-wide 约束或 agent 入口说明变化时，同步更新 `AGENTS.md` 和 `CLAUDE.md`。
+
+## 测试与检查命令
+
+从插件目录运行：
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt   # rstr, jieba, pydantic, playwright
-
-# Run tests
-pytest                            # pytest with mocked AstrBot deps
-python tests/run_tests.py         # Standalone regex example tests
-python tests/run_tests.py -v      # Verbose output
-
-# Clear persistent cache for fresh state
-rm -f data/plugin_data/astrbot_plugin_helpinfo/cache/commands_cache.json
+ruff check main.py src tests       # lint
+ruff format --check main.py src tests  # 格式检查
+python3 -m compileall main.py src tests  # 语法检查
+pytest tests/ -v                   # pytest
+python tests/run_tests.py -v       # 正则示例测试
 ```
 
-## Architecture
+本地集成验证通常需要运行上层 AstrBot 入口：
 
-The plugin uses a **layered architecture** with DDD influences:
-
-```
-Domain          →  CommandEntry, RenderNode, PluginCommandSummary (pure dataclasses)
-Application     →  HelpService orchestrates use cases
-Infrastructure  →  CommandIndex, analyzers, HTMLHelpRenderer, CacheManager, ConfigManager
+```bash
+cd /Users/flanchan/Development/SourceCode/GithubProjects/AstrbotPluginDev
+python main.py
 ```
 
-**Data Flow (Help Menu Rendering)**:
-```
-star_handlers_registry → CommandIndex._build_index() → _command_cache (dict)
-                                                       → _plugin_cache (PluginCommandSummary)
-                             ↓
-                    _apply_custom_groups()  ←  custom_groups.json
-                             ↓
-              CommandAnalyzer.analyze_hierarchy()
-                             ↓
-              _build_plugin_command_tree()  →  RenderNode tree
-                             ↓
-              HTMLTemplateManager (Jinja2) + HTMLHelpRenderer (Playwright/t2i)
-                             ↓
-                        JPEG image → CacheManager
-```
+## 维护
 
-### Key Components
+当架构、命令索引、黑名单规则、AI tool 语义、渲染流程或测试/lint 流程变化时，同步更新 `AGENTS.md` 和 `CLAUDE.md`。
 
-- **`CommandIndex`** (`src/infrastructure/analysis/command_index.py`): Scans AstrBot's `star_handlers_registry` to build a persistent JSON cache of all commands. Extracts `CommandFilter`, `CommandGroupFilter`, `RegexFilter`. Supports custom groups as virtual plugins (`_custom_group_<name>`). Cache invalidates on activated star count change or custom groups modification.
+## 篇幅约束
 
-- **`CommandAnalyzer`** (`src/infrastructure/analysis/analyzers.py`): Converts flat command lists into `RenderNode` trees. Sorts output: normal commands → regex commands → command groups. Handles group aliases, single-command group flattening, and empty group placeholders.
-
-- **`CommandExecutor`** (`src/infrastructure/analysis/executor.py`): Executes commands via the `execute_astrbot_command` LLM tool. Builds a synthetic `AstrMessageEvent`, runs it through AstrBot's `WakingCheckStage` + `ProcessStage`. For regex commands, derives the actual message text from cached examples or the pattern itself. Detects generic handlers, forwarding plugins, and custom group commands.
-
-- **`HelpService`** (`src/application/services/help_service.py`): Central orchestrator bridging LLM tools, web APIs, and infrastructure.
-
-### Singleton Pattern (Critical)
-
-Nearly every component is a module-level singleton:
-```python
-get_help_service(), get_command_index(), get_command_analyzer()
-get_command_executor(), get_html_renderer(), get_cache_manager()
-```
-Tests reset these via `reset_*()` functions. `init_plugin_service()` in `main.py` bootstraps all singletons in dependency order.
-
-### Custom Command Groups
-
-- User-defined via WebUI APIs, persisted to `data/plugin_data/astrbot_plugin_help/data/custom_groups.json`
-- Applied as virtual plugins (`_custom_group_*`) in the command index
-- Can merge with real plugins if names match
-- Support both `command` and `regex` types with auto-generated examples via `rstr`
-- Custom regex commands have `group_name=None` (flat display, not grouped as folders)
-
-### AI Tool System
-
-- `search_astrbot_command`: Command discovery with jieba tokenization, multi-dimensional scoring, permission filtering
-- `execute_astrbot_command`: Safe execution with blacklist check, recursive call blocking, and forwarding plugin detection. Regex commands use example text as `message_str` so `RegexFilter` can match
-- `list_all_plugins_and_commands`: Full command inventory for AI context
-
-### Rendering Pipeline
-
-- Jinja2 template at `templates/simple/help_template.html`
-- CSS-based 3-column layout (`column-count: 3`)
-- Two backends: Playwright (local, higher quality) vs AstrBot built-in t2i service
-- Caches rendered JPEGs by config hash
-
-## AstrBot Plugin Basics
-
-Plugins are "Stars" that inherit from `Star` (`astrbot/core/star/base.py`):
-- `initialize()` called on activation; `terminate()` on deactivation/reload
-- Handlers registered via decorators: `@filter.command()`, `@filter.llm_tool()`, `@filter.on_message()`
-- Config schema in `_conf_schema.json`
-- Session config via `context.get_config(umo)` (`umo` = `platform:msg_type:session_id`)
-- Store persistent data in `data/`, not the plugin source directory
-
-**Tool Definition (v4.5.7+)** — prefer dataclass pattern:
-```python
-from pydantic.dataclasses import dataclass
-from astrbot.core.agent.tool import FunctionTool
-
-@dataclass
-class MyTool(FunctionTool):
-    name: str = "my_tool"
-    description: str = "..."
-    parameters: dict = {...}
-    async def call(self, context, **kwargs) -> str:
-        return "result"
-# Register: self.context.add_llm_tools(MyTool())
-```
-
-**Two Hook Layers** (do not mix up):
-- Plugin event hooks: decorators on Star methods (`@filter.command`, `@filter.on_*`)
-- Agent runner hooks: `BaseAgentRunHooks` for intercepting agent execution
-
-## Key File Paths
-
-- `main.py` — Plugin entry point (`HelpPlugin` Star subclass), registers commands/LLM tools/Web APIs
-- `_conf_schema.json` — Plugin configuration schema (AI blacklist, regex settings, rendering options)
-- `src/application/services/help_service.py` — Main orchestrator
-- `src/infrastructure/analysis/command_index.py` — Command indexing from `star_handlers_registry`
-- `src/infrastructure/analysis/analyzers.py` — Command/event/filter analysis, tree building
-- `src/infrastructure/analysis/executor.py` — AI command execution pipeline
-- `src/infrastructure/rendering/html_renderer.py` — Playwright/t2i image rendering
-- `src/infrastructure/config/config_manager.py` — Config + custom groups persistence
-- `src/domain/entities/command.py` — `CommandEntry`, `MatchedHandlerInfo`
-- `src/domain/entities/plugin.py` — `PluginCommandSummary`, `RenderNode`
-- `templates/simple/help_template.html` — Jinja2 template for help images
-- `tests/conftest.py` — Pytest fixtures with mocked AstrBot deps via `sys.modules`
-
-## Conventions
-
-- **Formatting**: Ruff only (`ruff check .` and `ruff format .` before PR)
-- **Testing**:
-  - Run `pytest` after every change to verify no regressions
-  - Add new tests for new features or bug fixes
-  - Use `pytest -v` for verbose output, `pytest -x` to stop on first failure
-  - Tests mock AstrBot modules via `sys.modules` injection in `conftest.py`
-- **Code Review Checklist**:
-  1. Format code: `ruff format .`
-  2. Lint code: `ruff check .`
-  3. Run tests: `pytest`
-  4. Update CHANGELOG.md for user-facing changes
-  5. Commit with clear message following conventional commit format
-- **Async**: Use `async def` for all handlers/hooks/tools. Use `aiohttp` or `httpx`, never `requests`
-- **Type hints**: Add for public methods and hook signatures
-- **Config**: Never hardcode secrets; expose in `_conf_schema.json`
-- **Plugin size**: Keep under 32MB. Use CDN for large resources
+`AGENTS.md` 和 `CLAUDE.md` 均不得超过 100 行；内容过长时拆入 `docs/dev/` 或 `docs/project/`。

@@ -5,6 +5,13 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 
+class MockMessageEventResult:
+    """模拟 AstrBot MessageEventResult，用于测试结果投递。"""
+
+    def __init__(self, chain=None):
+        self.chain = chain
+
+
 class MockAstrMessageEvent:
     """模拟 AstrMessageEvent 用于测试."""
 
@@ -53,9 +60,20 @@ class MockAstrMessageEvent:
         self.sent_messages.append({"type": "chain", "components": components})
         return f"msg_id_{len(self.sent_messages)}"
 
+    async def send(self, result) -> str:
+        """发送 AstrBot 执行结果."""
+        self.sent_messages.append({"type": "result", "content": result})
+        return f"msg_id_{len(self.sent_messages)}"
+
     async def remove_message_event(self, msg_id: str) -> bool:
         """撤回消息."""
         return True
+
+    def clear_result(self) -> None:
+        """清理事件结果，模拟 AstrBot 事件复用前置操作。"""
+
+    def clear_extra(self) -> None:
+        """清理事件扩展字段，模拟 AstrBot 事件复用前置操作。"""
 
     def get_sender_id(self) -> str:
         """获取发送者 ID."""
@@ -73,6 +91,6 @@ class MockImage:
         self.path = path
 
     @classmethod
-    def fromFileSystem(cls, path: str) -> "MockImage":
+    def fromFileSystem(cls, path: str) -> MockImage:
         """从文件系统创建图片."""
         return cls(path)
