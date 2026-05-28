@@ -66,7 +66,7 @@ python tests/run_tests.py -v       # 正则示例测试
 本地集成验证通常需要运行上层 AstrBot 入口：
 
 ```bash
-cd /Users/flanchan/Development/SourceCode/GithubProjects/AstrbotPluginDev
+cd <AstrBotPluginDev>
 python main.py
 ```
 

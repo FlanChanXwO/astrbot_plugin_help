@@ -21,7 +21,7 @@ Playwright 不是插件运行时依赖（t2i 为推荐后端），但属于模�
 插件通常位于：
 
 ```text
-AstrbotPluginDev/data/plugins/astrbot_plugin_helpinfo
+AstrBotPluginDev/data/plugins/astrbot_plugin_helpinfo
 ```
 
 ## 常用目录
@@ -48,7 +48,8 @@ docs/                           # 项目和开发文档
 本地工作区常见入口：
 
 ```bash
-python /Users/flanchan/Development/SourceCode/GithubProjects/AstrbotPluginDev/main.py
+cd <AstrBotPluginDev>
+python main.py
 ```
 
 ### 数据目录
