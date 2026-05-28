@@ -5,6 +5,7 @@
 - Python 3.10+
 - AstrBotPluginDev 本地开发环境
 - 推荐使用 `uv`
+- 本机需自行安装 `ruff`，pre-commit 的 Ruff hook 使用本机命令，不会自动下载隔离环境。
 
 ## 可选渲染依赖
 
