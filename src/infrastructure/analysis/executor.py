@@ -87,7 +87,29 @@ class CommandExecutor:
             command_event._extras = {}
         else:
             command_event.clear_extra()
+        self._bind_command_event_sender(command_event, event)
         return command_event
+
+    def _bind_command_event_sender(
+        self, command_event: AstrMessageEvent, source_event: AstrMessageEvent
+    ) -> None:
+        """为委托事件绑定可用发送器，避免 tool 事件缺少 send 时打断调度。"""
+        source_send = getattr(source_event, "send", None)
+        if callable(source_send):
+            command_event.send = source_send
+            return
+
+        async def send_via_context(result) -> bool:
+            """回退到 AstrBot 主动发送接口，保持命令输出仍回到原会话。"""
+            chain = getattr(result, "chain", None)
+            if chain is None:
+                chain = result
+            return await self.context.send_message(
+                source_event.unified_msg_origin,
+                chain,
+            )
+
+        command_event.send = send_via_context
 
     def _make_pipeline_context(
         self, event: AstrMessageEvent, allow_bot_self_message: bool = False
@@ -194,7 +216,7 @@ class CommandExecutor:
             stage_index = self._find_stage_index(scheduler, "ProcessStage")
             await scheduler._process_stages(command_event, from_stage=stage_index)
         except Exception as exc:
-            logger.error(f"后台执行指令 {final_command} 失败: {exc}")
+            logger.error(f"后台执行指令 {final_command} 失败: {exc}", exc_info=True)
             if self.cfg.enable_ai_command_result:
                 try:
                     await self._plain_result(
@@ -297,12 +319,21 @@ class CommandExecutor:
 
     async def _plain_result(self, event: AstrMessageEvent, text: str) -> None:
         """兼容同步和异步的 plain_result，实现测试与运行时一致投递。"""
-        result = event.plain_result(text)
+        plain_result = getattr(event, "plain_result", None)
+        if not callable(plain_result):
+            logger.warning("当前事件不支持 plain_result，跳过命令执行提示")
+            return
+
+        result = plain_result(text)
         if inspect.isawaitable(result):
             await result
             return
         if self._is_sendable_result(result):
-            await event.send(result)
+            send = getattr(event, "send", None)
+            if callable(send):
+                await send(result)
+            else:
+                await self.context.send_message(event.unified_msg_origin, result.chain)
 
     async def execute(
         self,
@@ -646,7 +677,7 @@ class CommandExecutor:
                 "dispatched": True,
             }
         except Exception as exc:
-            logger.error(f"执行指令失败: {exc}")
+            logger.error(f"执行指令失败: {exc}", exc_info=True)
             return {
                 "command": final_command,
                 "success": False,

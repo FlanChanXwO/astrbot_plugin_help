@@ -20,7 +20,12 @@ from src.infrastructure.config.datamodels import CustomGroupCommand, CustomGroup
 from src.infrastructure.context_holder import clear_context, set_context
 from src.infrastructure.utils.paths import init_plugin_paths
 
-from tests.mocks import MockAstrMessageEvent, MockContext, MockHandler
+from tests.mocks import (
+    MockAstrMessageEvent,
+    MockContext,
+    MockHandler,
+    MockMessageEventResult,
+)
 
 
 class _Plain:
@@ -43,11 +48,14 @@ class _WakingCheckStage:
     """按测试事件上的 extra 模拟 AstrBot 唤醒阶段。"""
 
     handlers = [MockHandler("help", handler_module_path="help_plugin")]
+    send_during_process = False
 
     async def initialize(self, ctx) -> None:
         self.ctx = ctx
 
     async def process(self, event) -> None:
+        if self.send_during_process:
+            await event.send(MockMessageEventResult(chain=["过滤器错误提示"]))
         event.set_extra("activated_handlers", self.handlers)
 
 
@@ -105,6 +113,7 @@ def _setup_singletons():
     _WakingCheckStage.handlers = [
         MockHandler("help", handler_module_path="help_plugin")
     ]
+    _WakingCheckStage.send_during_process = False
     with (
         patch.object(executor_module, "Plain", _Plain),
         patch.object(executor_module, "PipelineContext", _PipelineContext),
@@ -242,6 +251,52 @@ class TestAsyncDispatch:
         assert any(
             "正在执行命令" in str(m.get("content", ""))
             for m in mock_event.sent_messages
+        )
+        _Scheduler.release.set()
+        await asyncio.gather(*executor._background_tasks)
+
+    @pytest.mark.asyncio
+    async def test_sync_plain_result_with_send_none_does_not_block_dispatch(
+        self, mock_event
+    ):
+        """真实 AstrBot plain_result 返回结果对象；send 缺失不应阻塞调度。"""
+
+        def plain_result(text: str):
+            return MockMessageEventResult(chain=[text])
+
+        mock_event.plain_result = plain_result
+        mock_event.send = None
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = True
+        executor.cfg.enable_ai_command_result = True
+
+        result = await executor.execute(event=mock_event, command="/help", actor="user")
+        await asyncio.sleep(0)
+
+        assert result["success"] is True, result
+        assert result["dispatched"] is True
+        assert _Scheduler.started.is_set()
+        _Scheduler.release.set()
+        await asyncio.gather(*executor._background_tasks)
+
+    @pytest.mark.asyncio
+    async def test_waking_check_send_none_does_not_mask_dispatch(self, mock_event):
+        """唤醒阶段内部发送提示时，也要能通过原始会话投递。"""
+        _WakingCheckStage.send_during_process = True
+        mock_event.send = None
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(event=mock_event, command="/help", actor="user")
+        await asyncio.sleep(0)
+
+        assert result["success"] is True, result
+        assert result["dispatched"] is True
+        assert _Scheduler.started.is_set()
+        assert executor.context.sent_messages
+        assert executor.context.sent_messages[0]["session"] == (
+            mock_event.unified_msg_origin
         )
         _Scheduler.release.set()
         await asyncio.gather(*executor._background_tasks)

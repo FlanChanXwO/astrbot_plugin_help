@@ -102,6 +102,7 @@ class MockContext:
         self._stars: list[MockStar] = []
         self._handlers: list[MockHandler] = []
         self._config = MagicMock()
+        self.sent_messages: list[dict] = []
 
     def add_star(self, star: MockStar) -> None:
         """添加插件."""
@@ -135,3 +136,8 @@ class MockContext:
     def get_llm_tool_manager(self) -> Any | None:
         """获取 LLM 工具管理器."""
         return None
+
+    async def send_message(self, session: str, message_chain) -> bool:
+        """模拟 AstrBot 主动发送消息。"""
+        self.sent_messages.append({"session": session, "message_chain": message_chain})
+        return True
