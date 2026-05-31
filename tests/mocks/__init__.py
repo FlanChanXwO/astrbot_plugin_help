@@ -9,11 +9,12 @@ from .mock_context import (
     MockStar,
 )
 from .mock_data import MockDataFactory
-from .mock_event import MockAstrMessageEvent
+from .mock_event import MockAstrMessageEvent, MockMessageEventResult
 from .mock_renderer import MockHtmlRenderer
 
 __all__ = [
     "MockAstrMessageEvent",
+    "MockMessageEventResult",
     "MockCommandFilter",
     "MockCommandGroupFilter",
     "MockContext",

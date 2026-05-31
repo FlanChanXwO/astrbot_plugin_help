@@ -120,6 +120,9 @@ class HelpPluginConfig(BaseModel):
     enable_ai_command_result: bool = Field(
         default=True, description="AI执行命令结果通知"
     )
+    enable_ai_self_command: bool = Field(
+        default=False, description="允许AI以机器人自身身份执行命令"
+    )
     ignored_plugins: set[str] = Field(
         default_factory=lambda: DefaultCFG.IGNORED_PLUGINS.copy(),
         description="黑名单插件ID",
@@ -158,6 +161,7 @@ class HelpPluginConfig(BaseModel):
         return cls(
             enable_ai_command_notify=raw_config.get("enable_ai_command_notify", True),
             enable_ai_command_result=raw_config.get("enable_ai_command_result", True),
+            enable_ai_self_command=raw_config.get("enable_ai_self_command", False),
             ignored_plugins=ignored_set,
             ai_command_blacklist=ai_blacklist_set,
             regex=regex_cfg,

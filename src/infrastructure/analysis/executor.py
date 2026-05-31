@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
+import inspect
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 from astrbot.api.event import AstrMessageEvent
@@ -13,7 +16,6 @@ from astrbot.core.pipeline.process_stage.stage import ProcessStage
 from astrbot.core.pipeline.waking_check.stage import WakingCheckStage
 
 from ...infrastructure.config import get_config
-from ...shared import UserRole
 from ..context_holder import get_context
 from ..utils.logger import get_logger
 from .command_index import get_command_index
@@ -32,13 +34,14 @@ class CommandExecutor:
         self.cfg = get_config()
         self.command_index = get_command_index()
         self.prefixes: list[str] = ["/"]
+        self._background_tasks: set[asyncio.Task] = set()
 
     def update_prefixes(self, prefixes: list[str]) -> None:
         """更新命令前缀"""
         self.prefixes = prefixes
 
     def _build_command_event(
-        self, event: AstrMessageEvent, command_text: str
+        self, event: AstrMessageEvent, command_text: str, actor: str = "user"
     ) -> AstrMessageEvent:
         """构建命令执行事件"""
         command_event = copy.copy(event)
@@ -46,33 +49,121 @@ class CommandExecutor:
         command_event.message_str = command_text
         command_event.message_obj.message_str = command_text
         command_event.message_obj.message = [Plain(command_text)]
+
+        sender = copy.copy(getattr(event.message_obj, "sender", None))
+        if sender is None:
+            sender = SimpleNamespace(
+                user_id=event.get_sender_id(),
+                nickname=(
+                    event.get_sender_name()
+                    if hasattr(event, "get_sender_name")
+                    else None
+                ),
+            )
+        if actor == "self":
+            sender.user_id = event.get_self_id()
+            if not getattr(sender, "nickname", None):
+                sender.nickname = "AstrBot"
+            # self 身份只影响权限/过滤判断；实际消息仍投递到当前会话。
+            command_event.send = event.send
+            if hasattr(event, "send_streaming"):
+                command_event.send_streaming = event.send_streaming
+            if hasattr(event, "send_typing"):
+                command_event.send_typing = event.send_typing
+            if hasattr(event, "stop_typing"):
+                command_event.stop_typing = event.stop_typing
+        command_event.message_obj.sender = sender
+
         command_event.is_wake = False
         command_event.is_at_or_wake_command = False
-        command_event.role = UserRole.MEMBER
-        command_event.call_llm = False
+        command_event.role = "member"
+        # 后台只委托执行命令处理器，不在命令结束后继续触发默认 LLM 对话。
+        command_event.call_llm = True
         command_event.plugins_name = None
+        command_event._force_stopped = False
+        command_event._has_send_oper = False
         command_event.clear_result()
-        command_event.clear_extra()
+        if hasattr(command_event, "_extras"):
+            command_event._extras = {}
+        else:
+            command_event.clear_extra()
+        self._bind_command_event_sender(command_event, event)
         return command_event
 
-    def _make_pipeline_context(self, event: AstrMessageEvent) -> PipelineContext:
+    def _bind_command_event_sender(
+        self, command_event: AstrMessageEvent, source_event: AstrMessageEvent
+    ) -> None:
+        """为委托事件绑定可用发送器，避免 tool 事件缺少 send 时打断调度。"""
+        source_send = getattr(source_event, "send", None)
+        if callable(source_send):
+            command_event.send = source_send
+            return
+
+        async def send_via_context(result) -> bool:
+            """回退到 AstrBot 主动发送接口，保持命令输出仍回到原会话。"""
+            chain = getattr(result, "chain", None)
+            if chain is None:
+                chain = result
+            return await self.context.send_message(
+                source_event.unified_msg_origin,
+                chain,
+            )
+
+        command_event.send = send_via_context
+
+    def _make_pipeline_context(
+        self, event: AstrMessageEvent, allow_bot_self_message: bool = False
+    ) -> PipelineContext:
         """创建管道上下文"""
+        astrbot_config = self.context.get_config(umo=event.unified_msg_origin)
+        if allow_bot_self_message:
+            astrbot_config = self._copy_config_for_self_actor(astrbot_config)
         return PipelineContext(
-            astrbot_config=self.context.get_config(umo=event.unified_msg_origin),
+            astrbot_config=astrbot_config,
             plugin_manager=getattr(self.context, "_star_manager", None),
             astrbot_config_id=event.unified_msg_origin,
         )
 
-    async def _execute_command_via_pipeline(
-        self, command_event: AstrMessageEvent
+    def _copy_config_for_self_actor(self, astrbot_config: dict) -> dict:
+        """复制 self actor 需要改写的配置层级，避开 AstrBotConfig deepcopy 限制。"""
+        config_copy = dict(astrbot_config)
+        platform_settings = config_copy.get("platform_settings", {})
+        if isinstance(platform_settings, dict):
+            platform_settings = dict(platform_settings)
+            # self actor 需要经过正常权限链路，但不能被“忽略机器人自身消息”挡掉。
+            platform_settings["ignore_bot_self_message"] = False
+            config_copy["platform_settings"] = platform_settings
+        return config_copy
+
+    async def _run_waking_check(
+        self, command_event: AstrMessageEvent, actor: str = "user"
     ) -> dict:
-        """通过管道执行命令"""
-        pipeline_context = self._make_pipeline_context(command_event)
+        """运行唤醒/过滤阶段，只做同步调度前校验。"""
+        pipeline_context = self._make_pipeline_context(
+            command_event,
+            allow_bot_self_message=actor == "self",
+        )
         waking_stage = WakingCheckStage()
         await waking_stage.initialize(pipeline_context)
         await waking_stage.process(command_event)
 
         activated_handlers = command_event.get_extra("activated_handlers", []) or []
+        return {
+            "matched_handlers": activated_handlers,
+            "pipeline_context": pipeline_context,
+            "result_type": "stopped" if command_event.is_stopped() else "matched",
+            "stopped": command_event.is_stopped(),
+        }
+
+    async def _execute_command_via_pipeline(
+        self, command_event: AstrMessageEvent
+    ) -> dict:
+        """通过管道执行命令。
+
+        保留给测试和兼容调用；LLM tool 正常路径会改用异步后台调度。
+        """
+        execution = await self._run_waking_check(command_event)
+        activated_handlers = execution["matched_handlers"]
         if not activated_handlers or command_event.is_stopped():
             return {
                 "matched_handlers": activated_handlers,
@@ -84,7 +175,7 @@ class CommandExecutor:
             }
 
         process_stage = ProcessStage()
-        await process_stage.initialize(pipeline_context)
+        await process_stage.initialize(execution["pipeline_context"])
 
         results: list[MessageEventResult] = []
         async for _ in process_stage.star_request_sub_stage.process(command_event):
@@ -113,6 +204,69 @@ class CommandExecutor:
             "stopped": any(result.is_stopped() for result in results),
             "had_result": bool(results),
         }
+
+    def _is_sendable_result(self, result) -> bool:
+        """判断 handler 产物是否可以直接投递。"""
+        return bool(result and getattr(result, "chain", None))
+
+    async def _dispatch_command_task(
+        self,
+        event: AstrMessageEvent,
+        command_event: AstrMessageEvent,
+        pipeline_context: PipelineContext,
+        final_command: str,
+    ) -> None:
+        """后台执行命令并把后续结果投递回当前会话。"""
+        try:
+            scheduler = self._create_pipeline_scheduler(pipeline_context)
+            await scheduler.initialize()
+            stage_index = self._find_stage_index(scheduler, "ProcessStage")
+            await scheduler._process_stages(command_event, from_stage=stage_index)
+        except Exception as exc:
+            logger.error(f"后台执行指令 {final_command} 失败: {exc}", exc_info=True)
+            if self.cfg.enable_ai_command_result:
+                try:
+                    await self._plain_result(
+                        event, f"执行命令 {final_command} 后台失败，原因：{exc}"
+                    )
+                except Exception as result_exc:
+                    logger.warning(f"发送后台执行失败通知失败: {result_exc}")
+        finally:
+            cleanup = getattr(command_event, "cleanup_temporary_local_files", None)
+            if cleanup:
+                cleanup()
+
+    def _find_stage_index(self, scheduler, stage_name: str) -> int:
+        """查找后台调度应从哪个 AstrBot stage 开始恢复。"""
+        for index, stage in enumerate(scheduler.stages):
+            if stage.__class__.__name__ == stage_name:
+                return index
+        raise RuntimeError(f"未找到 AstrBot pipeline stage: {stage_name}")
+
+    def _create_pipeline_scheduler(self, pipeline_context: PipelineContext):
+        """延迟创建 AstrBot pipeline scheduler，避免插件导入期绑定完整核心模块。"""
+        from astrbot.core.pipeline.scheduler import PipelineScheduler
+
+        return PipelineScheduler(pipeline_context)
+
+    def _schedule_command_task(
+        self,
+        event: AstrMessageEvent,
+        command_event: AstrMessageEvent,
+        pipeline_context: PipelineContext,
+        final_command: str,
+    ) -> None:
+        """提交后台命令任务，并持有引用直到任务结束。"""
+        task = asyncio.create_task(
+            self._dispatch_command_task(
+                event,
+                command_event,
+                pipeline_context,
+                final_command,
+            )
+        )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     def _get_regex_examples(self, regex_command: str) -> list[str]:
         """获取正则命令的示例文本列表
@@ -170,12 +324,31 @@ class CommandExecutor:
                 return command[len(prefix) :].strip()
         return command.strip()
 
+    async def _plain_result(self, event: AstrMessageEvent, text: str) -> None:
+        """兼容同步和异步的 plain_result，实现测试与运行时一致投递。"""
+        plain_result = getattr(event, "plain_result", None)
+        if not callable(plain_result):
+            logger.warning("当前事件不支持 plain_result，跳过命令执行提示")
+            return
+
+        result = plain_result(text)
+        if inspect.isawaitable(result):
+            await result
+            return
+        if self._is_sendable_result(result):
+            send = getattr(event, "send", None)
+            if callable(send):
+                await send(result)
+            else:
+                await self.context.send_message(event.unified_msg_origin, result.chain)
+
     async def execute(
         self,
         event: AstrMessageEvent,
         command: str,
         allowed_plugins: set[str] | None = None,
         search_suggestions_func=None,
+        actor: str = "user",
     ) -> dict:
         """
         执行 AstrBot 命令
@@ -185,11 +358,13 @@ class CommandExecutor:
             command: 要执行的命令
             allowed_plugins: 允许的插件集合
             search_suggestions_func: 搜索建议的回调函数
+            actor: 执行角色，"user"（默认）或 "self"。
 
         Returns:
             执行结果字典
         """
         command_text = command.strip()
+
         if not command_text:
             return {
                 "command": "",
@@ -225,6 +400,39 @@ class CommandExecutor:
                 "error": "empty_command",
             }
 
+        if actor not in {"user", "self"}:
+            return {
+                "command": final_command,
+                "success": False,
+                "message": "actor 仅支持 user 或 self",
+                "matched_handlers": [],
+                "messages": [],
+                "result_type": "none",
+                "error": "invalid_actor",
+            }
+
+        if actor == "self" and not self.cfg.enable_ai_self_command:
+            return {
+                "command": final_command,
+                "success": False,
+                "message": "actor=self 默认禁用，请先开启 enable_ai_self_command 配置项",
+                "matched_handlers": [],
+                "messages": [],
+                "result_type": "none",
+                "error": "self_actor_disabled",
+            }
+
+        if actor == "self" and not event.get_self_id():
+            return {
+                "command": final_command,
+                "success": False,
+                "message": "当前事件缺少 bot self_id，无法使用 actor=self 执行命令",
+                "matched_handlers": [],
+                "messages": [],
+                "result_type": "none",
+                "error": "missing_self_id",
+            }
+
         try:
             # 获取建议
             suggestions = []
@@ -234,7 +442,7 @@ class CommandExecutor:
             # 执行前通知
             if self.cfg.enable_ai_command_notify:
                 try:
-                    event.plain_result(f"正在执行命令: {final_command}")
+                    await self._plain_result(event, f"正在执行命令: {final_command}")
                 except Exception as notify_exc:
                     logger.warning(f"发送执行前通知失败: {notify_exc}")
 
@@ -255,12 +463,10 @@ class CommandExecutor:
                         f"正则命令 '{final_command}' 无示例，使用派生文本: '{execution_text}'"
                     )
 
-            command_event = self._build_command_event(event, execution_text)
-            execution = await self._execute_command_via_pipeline(command_event)
+            command_event = self._build_command_event(event, execution_text, actor)
+            execution = await self._run_waking_check(command_event, actor)
             matched_handlers = execution["matched_handlers"]
-            messages = execution["messages"]
             result_type = execution["result_type"]
-            raw_results = execution.get("raw_results", [])
 
             # 检查是否只匹配到了通用消息处理器
             def is_generic_handler(handler) -> bool:
@@ -342,8 +548,9 @@ class CommandExecutor:
                     )
                     if self.cfg.enable_ai_command_result:
                         try:
-                            event.plain_result(
-                                f"执行命令 {final_command} 失败，原因：{error_msg}"
+                            await self._plain_result(
+                                event,
+                                f"执行命令 {final_command} 失败，原因：{error_msg}",
                             )
                         except Exception as result_exc:
                             logger.warning(f"发送执行失败通知失败: {result_exc}")
@@ -362,6 +569,8 @@ class CommandExecutor:
             if not is_forwarding_command:
                 blacklisted_handlers = []
                 for handler in matched_handlers:
+                    if is_generic_handler(handler):
+                        continue
                     plugin_name = getattr(handler, "handler_module_path", "")
                     if plugin_name and any(
                         plugin_name.startswith(bl) or plugin_name == bl
@@ -376,8 +585,9 @@ class CommandExecutor:
                     logger.warning(f"AI尝试调用黑名单插件命令: {blacklisted_handlers}")
                     if self.cfg.enable_ai_command_result:
                         try:
-                            event.plain_result(
-                                f"执行命令 {final_command} 失败，原因：{error_msg}"
+                            await self._plain_result(
+                                event,
+                                f"执行命令 {final_command} 失败，原因：{error_msg}",
                             )
                         except Exception as result_exc:
                             logger.warning(f"发送执行失败通知失败: {result_exc}")
@@ -392,21 +602,12 @@ class CommandExecutor:
                         "suggestions": [],
                     }
 
-            # 发送命令结果
-            if raw_results:
-                for result in raw_results:
-                    if isinstance(result, MessageEventResult) and result.chain:
-                        try:
-                            await event.send(result)
-                        except Exception as send_exc:
-                            logger.warning(f"发送命令执行结果失败: {send_exc}")
-
             if not matched_handlers:
                 error_msg = f"未找到或无法执行指令 '{stripped_command}'"
                 if self.cfg.enable_ai_command_result:
                     try:
-                        event.plain_result(
-                            f"执行命令 {final_command} 失败，原因：{error_msg}"
+                        await self._plain_result(
+                            event, f"执行命令 {final_command} 失败，原因：{error_msg}"
                         )
                     except Exception as result_exc:
                         logger.warning(f"发送执行失败通知失败: {result_exc}")
@@ -415,7 +616,7 @@ class CommandExecutor:
                     "success": False,
                     "message": error_msg,
                     "matched_handlers": [],
-                    "messages": messages,
+                    "messages": [],
                     "result_type": result_type,
                     "error": "command_not_found"
                     if not suggestions
@@ -423,44 +624,67 @@ class CommandExecutor:
                     "suggestions": suggestions,
                 }
 
-            # 改进成功判断：转发命令即使没有直接结果也算成功
-            success = bool(messages) or execution["had_result"] or is_forwarding_command
+            if execution.get("stopped"):
+                error_msg = f"指令 '{stripped_command}' 在调度前被 AstrBot 管道终止"
+                if self.cfg.enable_ai_command_result:
+                    try:
+                        await self._plain_result(
+                            event, f"执行命令 {final_command} 失败，原因：{error_msg}"
+                        )
+                    except Exception as result_exc:
+                        logger.warning(f"发送执行失败通知失败: {result_exc}")
+                return {
+                    "command": final_command,
+                    "success": False,
+                    "message": error_msg,
+                    "matched_handlers": matched_handlers,
+                    "messages": [],
+                    "result_type": "stopped",
+                    "error": "command_stopped",
+                    "suggestions": suggestions,
+                    "is_forwarding_command": is_forwarding_command,
+                }
 
             if is_forwarding_command:
-                message = f"命令 '{stripped_command}' 是转发命令，已发送到转发插件处理"
-            elif success:
-                message = f"命令执行成功，命中 {len(matched_handlers)} 个处理器"
+                message = f"命令 '{stripped_command}' 是转发命令，已提交后台处理"
             else:
-                message = f"命中了 {len(matched_handlers)} 个处理器，但没有产生结果"
+                message = f"命令已提交后台执行，命中 {len(matched_handlers)} 个处理器"
+
+            self._schedule_command_task(
+                event,
+                command_event,
+                execution["pipeline_context"],
+                final_command,
+            )
 
             if self.cfg.enable_ai_command_result:
                 try:
                     if is_forwarding_command:
-                        event.plain_result(
-                            f"执行转发命令 {final_command}，已通过转发插件发送"
+                        await self._plain_result(
+                            event, f"执行转发命令 {final_command}，已提交后台处理"
                         )
-                    elif success:
-                        event.plain_result(f"执行命令 {final_command} 成功")
                     else:
-                        event.plain_result(
-                            f"执行命令 {final_command} 失败，原因：{message}"
+                        await self._plain_result(
+                            event, f"执行命令 {final_command}，已提交后台执行"
                         )
                 except Exception as result_exc:
                     logger.warning(f"发送执行结果通知失败: {result_exc}")
 
             return {
                 "command": final_command,
-                "success": success,
+                "success": True,
                 "message": message,
                 "matched_handlers": matched_handlers,
-                "messages": messages,
-                "result_type": "forwarding" if is_forwarding_command else result_type,
-                "error": None if success else "no_result",
+                "messages": [],
+                "result_type": "forwarding" if is_forwarding_command else "dispatched",
+                "error": None,
                 "suggestions": suggestions,
                 "is_forwarding_command": is_forwarding_command,
+                "actor": actor,
+                "dispatched": True,
             }
         except Exception as exc:
-            logger.error(f"执行指令失败: {exc}")
+            logger.error(f"执行指令失败: {exc}", exc_info=True)
             return {
                 "command": final_command,
                 "success": False,

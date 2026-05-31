@@ -43,16 +43,21 @@ sys.modules["astrbot.core.pipeline.waking_check.stage"] = MagicMock()
 sys.modules["astrbot.core.pipeline.process_stage"] = MagicMock()
 sys.modules["astrbot.core.pipeline.process_stage.stage"] = MagicMock()
 
-from tests.mocks import (
+from tests.mocks import (  # noqa: E402
     MockAstrMessageEvent,
     MockCommandFilter,
     MockContext,
     MockDataFactory,
     MockHandler,
     MockHtmlRenderer,
+    MockMessageEventResult,
     MockRegexFilter,
     MockStar,
 )
+
+sys.modules[
+    "astrbot.core.message.message_event_result"
+].MessageEventResult = MockMessageEventResult
 
 
 @pytest.fixture

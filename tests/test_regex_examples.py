@@ -315,21 +315,21 @@ class TestRegexExampleGeneration:
             assert "c" not in ex, f"示例 '{ex}' 包含被排除的字符 'c'"
 
     def test_digit_class(self, generator):
-        """测试数字类 \d."""
-        examples, complete = generator.generate_examples(r"\d{2,4}")
+        r"""测试数字类 \d."""
+        examples, _complete = generator.generate_examples(r"\d{2,4}")
         assert len(examples) > 0
         for ex in examples:
             assert ex.isdigit(), f"示例 '{ex}' 不是纯数字"
             assert 2 <= len(ex) <= 4, f"示例 '{ex}' 长度不在 2-4 之间"
 
     def test_word_class(self, generator):
-        """测试单词类 \w."""
-        examples, complete = generator.generate_examples(r"\w+")
+        r"""测试单词类 \w."""
+        examples, _complete = generator.generate_examples(r"\w+")
         assert len(examples) > 0
 
     def test_space_class(self, generator):
-        """测试空白类 \s."""
-        examples, complete = generator.generate_examples(r"\s+")
+        r"""测试空白类 \s."""
+        examples, _complete = generator.generate_examples(r"\s+")
         assert len(examples) > 0
         for ex in examples:
             assert all(c.isspace() for c in ex), f"示例 '{ex}' 包含非空白字符"

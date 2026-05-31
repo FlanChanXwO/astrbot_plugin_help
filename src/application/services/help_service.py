@@ -695,7 +695,9 @@ Suggestion: Check WebUI configuration or search with different keywords."""
         response = CommandDetailResponse.from_command_entry(detail, similar)
         return response.to_json()
 
-    async def execute_command(self, event: AstrMessageEvent, command: str) -> str:
+    async def execute_command(
+        self, event: AstrMessageEvent, command: str, actor: str = "user"
+    ) -> str:
         """Execute command"""
         allowed_plugins = await self._resolve_allowed_plugins(event)
 
@@ -717,6 +719,7 @@ Suggestion: Check WebUI configuration or search with different keywords."""
             command=command,
             allowed_plugins=allowed_plugins,
             search_suggestions_func=search_suggestions_func,
+            actor=actor,
         )
 
         # Convert StarHandlerMetadata objects to dictionaries for JSON serialization

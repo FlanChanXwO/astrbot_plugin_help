@@ -41,11 +41,11 @@ for mod_name in [
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from src.domain.entities.command import CommandEntry
-from src.domain.entities.plugin import RenderNode
-from src.infrastructure import context_holder
-from src.infrastructure.analysis.analyzers import CommandAnalyzer
-import src.infrastructure.config.config_manager as _cm
+import src.infrastructure.config.config_manager as _cm  # noqa: E402
+from src.domain.entities.command import CommandEntry  # noqa: E402
+from src.domain.entities.plugin import RenderNode  # noqa: E402
+from src.infrastructure import context_holder  # noqa: E402
+from src.infrastructure.analysis.analyzers import CommandAnalyzer  # noqa: E402
 
 
 def _make_analyzer() -> CommandAnalyzer:
