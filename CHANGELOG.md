@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.1.0] - 2026-05-31
+
+### Added
+- AI 命令执行异步化，避免阻塞事件循环，提升响应性能
+- 新增 Executor actor 功能测试 (`test_executor_actor.py`)
+- 新增 `AGENTS.md` Agent 协作入口指令
+- 新增 `docs/` 文档目录，将项目文档拆分为 `docs/project/` 和 `docs/dev/`
+- 新增 `MIGRATION_SUMMARY.md` 迁移说明文档
+
+### Fixed
+- 修复命令分发未发送事件的问题
+- 修复 self actor 配置复制逻辑错误
+- 处理代码审查反馈的遗留问题
+
+### Improved
+- 重写 `CLAUDE.md`，从英文项目概述改为精简中文入口规则
+- 更新 `_conf_schema.json` 配置 schema 字段
+- 使用本地 ruff pre-commit hooks 替代 pre-commit.ci
+- 重命名自定义命令组页面目录
+
 ## [1.0.3] - 2026-05-15
 
 ### Fixed
