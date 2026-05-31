@@ -316,7 +316,7 @@ class TestRegexExampleGeneration:
 
     def test_digit_class(self, generator):
         r"""测试数字类 \d."""
-        examples, complete = generator.generate_examples(r"\d{2,4}")
+        examples, _complete = generator.generate_examples(r"\d{2,4}")
         assert len(examples) > 0
         for ex in examples:
             assert ex.isdigit(), f"示例 '{ex}' 不是纯数字"
@@ -324,12 +324,12 @@ class TestRegexExampleGeneration:
 
     def test_word_class(self, generator):
         r"""测试单词类 \w."""
-        examples, complete = generator.generate_examples(r"\w+")
+        examples, _complete = generator.generate_examples(r"\w+")
         assert len(examples) > 0
 
     def test_space_class(self, generator):
         r"""测试空白类 \s."""
-        examples, complete = generator.generate_examples(r"\s+")
+        examples, _complete = generator.generate_examples(r"\s+")
         assert len(examples) > 0
         for ex in examples:
             assert all(c.isspace() for c in ex), f"示例 '{ex}' 包含非空白字符"
