@@ -44,6 +44,20 @@ class _PipelineContext:
         self.astrbot_config_id = astrbot_config_id
 
 
+class _DeepcopyHostileConfig(dict):
+    """模拟 AstrBotConfig：deepcopy 会因缺失 __setstate__ 属性返回 None 而失败。"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        object.__setattr__(self, "config_path", "cmd_config.json")
+
+    def __getattr__(self, item):
+        try:
+            return self[item]
+        except KeyError:
+            return None
+
+
 class _WakingCheckStage:
     """按测试事件上的 extra 模拟 AstrBot 唤醒阶段。"""
 
@@ -346,6 +360,36 @@ class TestActorSelf:
         _Scheduler.release.set()
         await asyncio.gather(*executor._background_tasks)
         assert any(m.get("type") == "result" for m in mock_event.sent_messages)
+
+    @pytest.mark.asyncio
+    async def test_self_actor_does_not_deepcopy_astrbot_config(self, mock_event):
+        """self actor 只复制必要配置层级，避开 AstrBotConfig deepcopy 问题。"""
+        hostile_config = _DeepcopyHostileConfig(
+            {
+                "admins_id": [],
+                "plugin_set": ["*"],
+                "wake_prefix": ["/"],
+                "platform_settings": {
+                    "ignore_bot_self_message": True,
+                    "no_permission_reply": True,
+                },
+                "provider_settings": {"enable": False},
+            }
+        )
+        executor = CommandExecutor()
+        executor.context.get_config = lambda umo=None: hostile_config
+        executor.cfg.enable_ai_self_command = True
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(event=mock_event, command="/help", actor="self")
+        await asyncio.sleep(0)
+
+        assert result["success"] is True, result
+        assert _Scheduler.started.is_set()
+        assert hostile_config["platform_settings"]["ignore_bot_self_message"] is True
+        _Scheduler.release.set()
+        await asyncio.gather(*executor._background_tasks)
 
     @pytest.mark.asyncio
     async def test_user_actor_keeps_sender(self, mock_event):

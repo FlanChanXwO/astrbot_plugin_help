@@ -117,16 +117,23 @@ class CommandExecutor:
         """创建管道上下文"""
         astrbot_config = self.context.get_config(umo=event.unified_msg_origin)
         if allow_bot_self_message:
-            astrbot_config = copy.deepcopy(astrbot_config)
-            platform_settings = astrbot_config.get("platform_settings", {})
-            if isinstance(platform_settings, dict):
-                # self actor 需要经过正常权限链路，但不能被“忽略机器人自身消息”挡掉。
-                platform_settings["ignore_bot_self_message"] = False
+            astrbot_config = self._copy_config_for_self_actor(astrbot_config)
         return PipelineContext(
             astrbot_config=astrbot_config,
             plugin_manager=getattr(self.context, "_star_manager", None),
             astrbot_config_id=event.unified_msg_origin,
         )
+
+    def _copy_config_for_self_actor(self, astrbot_config: dict) -> dict:
+        """复制 self actor 需要改写的配置层级，避开 AstrBotConfig deepcopy 限制。"""
+        config_copy = dict(astrbot_config)
+        platform_settings = config_copy.get("platform_settings", {})
+        if isinstance(platform_settings, dict):
+            platform_settings = dict(platform_settings)
+            # self actor 需要经过正常权限链路，但不能被“忽略机器人自身消息”挡掉。
+            platform_settings["ignore_bot_self_message"] = False
+            config_copy["platform_settings"] = platform_settings
+        return config_copy
 
     async def _run_waking_check(
         self, command_event: AstrMessageEvent, actor: str = "user"
