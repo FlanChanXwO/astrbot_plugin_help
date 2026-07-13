@@ -17,8 +17,8 @@
 
 - 🖼️ **可视化帮助菜单** — 将命令列表渲染为精美的 JPEG 图片，支持 3 列瀑布流布局
 - 🔍 **智能命令搜索** — 基于 jieba 中文分词的多维度模糊搜索，支持拼音、别名匹配
-- 🤖 **AI 命令执行** — 为 LLM 提供 `execute_astrbot_command` 和 `search_astrbot_command` 工具
-- 📂 **自定义命令组** — 通过 WebUI 创建虚拟命令组，将任意命令聚合为分组菜单
+- 🤖 **AI 命令工具** — 提供命令发现、执行结果监听，以及 8 项自定义命令目录管理工具
+- 📂 **自定义命令组** — 可通过 WebUI 或 AI 创建虚拟命令组，将已有命令聚合为分组菜单
 - 🏷️ **正则命令支持** — 自动识别 RegexFilter 触发器，生成示例文本并正确渲染
 - ⚙️ **灵活配置** — 插件黑名单、AI 调用黑名单、渲染引擎选项等丰富的配置项
 - 🎨 **双渲染引擎** — 支持 Playwright（本地高质量）或 AstrBot 内置 t2i 服务
@@ -61,6 +61,8 @@
 | `enable_ai_command_notify` | 布尔值 | AI 执行命令前发送通知 | `true` |
 | `enable_ai_command_result` | 布尔值 | AI 命令调度成功/失败发送提示；命令最终输出由后台命令自己发送 | `true` |
 | `enable_ai_self_command` | 布尔值 | 允许 AI 使用 `actor=self` 以机器人自身 `self_id` 执行命令，权限仍由 AstrBot 正常判断 | `false` |
+| `ai_command_auto_wait_seconds` | 数值 | `execute_astrbot_command` 的 `auto` 模式监听窗口；窗口结束不取消后台命令 | `3` |
+| `ai_command_max_wait_seconds` | 数值 | `custom` 模式允许的最长单次监听时间 | `60` |
 | `ai_command_blacklist` | 列表 | 禁止 AI 调用的插件列表 | 见配置说明 |
 
 ### 黑名单配置
@@ -122,17 +124,19 @@
 本插件为 AI 提供以下工具函数：
 
 - `search_astrbot_command` — 搜索 AstrBot 命令，支持模糊匹配和权限过滤
-- `execute_astrbot_command` — 执行 AstrBot 命令，支持普通命令和正则触发命令
+- `execute_astrbot_command` — 执行 AstrBot 命令，支持普通命令和正则触发命令，并监听本次 synthetic event 的结果
+- 自定义目录管理（8 个工具）— `list_custom_groups`、`create_custom_group`、`update_custom_group`、`preview_delete_custom_group`、`confirm_delete_custom_group`、`add_custom_group_command`、`update_custom_group_command`、`delete_custom_group_command`
 
 在 AstrBot 的 LLM 配置中开启工具调用即可使用。
 
 **AI 工具特性：**
 - 自动检测用户权限（管理员可查看所有命令，普通用户仅查看普通命令）
-- `execute_astrbot_command` 只返回调度结果，不等待命令最终输出；图片生成等长耗时命令会在后台继续执行并自行把结果发到当前聊天
+- `execute_astrbot_command` 的 `auto` 模式默认监听 3 秒：快速命令向 AI 返回完整可归因文本；仍在执行的长耗时命令返回运行中且继续在后台发送结果。也可选 `background` 立即返回，或以不超过 60 秒的 `custom` 等待。
 - `actor=self` 默认禁用；显式开启 `enable_ai_self_command` 后，命令发送者改为机器人 `self_id`，但不会自动提权
 - 正则命令自动派生示例文本执行，确保 `RegexFilter` 能正确匹配
 - 自定义命令组命令即使只匹配通用处理器也会返回成功（转发命令）
 - 黑名单插件自动拦截，防止 AI 调用敏感命令
+- 自定义目录工具仅管理员可写；整组删除必须预览再确认，单条目录按精确触发式删除。目录只描述已有命令，不会创建 handler。
 
 ---
 
@@ -148,7 +152,7 @@ src/
 │   └── exceptions.py # 领域异常
 ├── application/      # 应用层 - 用例编排
 │   ├── dto/          # 数据传输对象
-│   └── services/     # 应用服务 (HelpService)
+│   └── services/     # 应用服务 (HelpService, CustomGroupService)
 └── infrastructure/   # 基础设施层 - 技术实现
     ├── analysis/     # 命令分析 (CommandIndex, CommandAnalyzer, CommandExecutor)
     ├── config/       # 配置管理 (ConfigManager)
@@ -175,6 +179,7 @@ src/
 - **别名管理** — 为分组和命令设置别名
 - **权限控制** — 支持标记管理命令
 - **隐藏命令** — 可将命令标记为隐藏，不出现在帮助菜单中
+- **AI 管理** — AI 可管理同一份目录数据；普通用户读取时不会看到隐藏或管理员条目
 
 WebUI 数据持久化到 `data/plugin_data/astrbot_plugin_help/data/custom_groups.json`。
 

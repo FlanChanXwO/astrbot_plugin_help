@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import copy
 import inspect
+import math
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
@@ -24,6 +26,17 @@ if TYPE_CHECKING:
     pass
 
 logger = get_logger()
+
+
+@dataclass
+class _CommandTaskState:
+    """仅保存本次 synthetic event 的后台执行状态与可归因输出。"""
+
+    started: asyncio.Event = field(default_factory=asyncio.Event)
+    messages: list[str] = field(default_factory=list)
+    error: Exception | None = None
+    scheduler_initialized: bool = False
+    streaming_output_ids: set[int] = field(default_factory=set)
 
 
 class CommandExecutor:
@@ -209,32 +222,149 @@ class CommandExecutor:
         """判断 handler 产物是否可以直接投递。"""
         return bool(result and getattr(result, "chain", None))
 
+    def _summarize_output(self, output) -> str:
+        """将一次 synthetic event 输出转换为不会泄露本地资源的摘要。"""
+        if output is None:
+            return ""
+        if isinstance(output, str):
+            return output.strip()
+
+        chain = getattr(output, "chain", None)
+        if chain is None:
+            return f"[{type(output).__name__}]"
+
+        parts: list[str] = []
+        for component in chain:
+            if isinstance(component, str):
+                text = component.strip()
+                if text:
+                    parts.append(text)
+                continue
+            if type(component).__name__ == "Plain":
+                text = getattr(component, "text", "")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text.strip())
+                    continue
+            # 图片、文件等只返回组件类型，避免将本地路径或二进制泄露给 tool。
+            parts.append(f"[{type(component).__name__}]")
+        return "".join(parts)
+
+    def _attach_output_capture(
+        self, command_event: AstrMessageEvent, state: _CommandTaskState
+    ) -> None:
+        """包装 synthetic event 发送接口，同时保持原会话消息投递。"""
+        original_send = getattr(command_event, "send", None)
+        if callable(original_send):
+
+            async def capture_send(result, *args, **kwargs):
+                # send_streaming 的底层实现通常会复用 event.send。仅跳过当前
+                # 流片段的重复投递，不能用全局布尔值，否则并行普通 send 会漏记。
+                if id(result) not in state.streaming_output_ids:
+                    summary = self._summarize_output(result)
+                    if summary:
+                        state.messages.append(summary)
+                sent = original_send(result, *args, **kwargs)
+                if inspect.isawaitable(sent):
+                    return await sent
+                return sent
+
+            command_event.send = capture_send
+
+        original_send_streaming = getattr(command_event, "send_streaming", None)
+        if callable(original_send_streaming):
+
+            async def capture_send_streaming(generator, *args, **kwargs):
+                async def captured_generator():
+                    async for result in generator:
+                        result_id = id(result)
+                        state.streaming_output_ids.add(result_id)
+                        try:
+                            summary = self._summarize_output(result)
+                            if summary:
+                                state.messages.append(summary)
+                            yield result
+                        finally:
+                            state.streaming_output_ids.discard(result_id)
+
+                sent = original_send_streaming(captured_generator(), *args, **kwargs)
+                if inspect.isawaitable(sent):
+                    return await sent
+                return sent
+
+            command_event.send_streaming = capture_send_streaming
+
     async def _dispatch_command_task(
         self,
         event: AstrMessageEvent,
         command_event: AstrMessageEvent,
         pipeline_context: PipelineContext,
         final_command: str,
+        state: _CommandTaskState,
     ) -> None:
         """后台执行命令并把后续结果投递回当前会话。"""
         try:
             scheduler = self._create_pipeline_scheduler(pipeline_context)
             await scheduler.initialize()
+            # initialize 成功代表调度器已真正接手该命令，可安全回应 background。
+            state.scheduler_initialized = True
+            state.started.set()
             stage_index = self._find_stage_index(scheduler, "ProcessStage")
             await scheduler._process_stages(command_event, from_stage=stage_index)
+            if command_event.is_stopped():
+                state.error = RuntimeError(
+                    self._describe_stopped_pipeline(command_event)
+                )
         except Exception as exc:
-            logger.error(f"后台执行指令 {final_command} 失败: {exc}", exc_info=True)
-            if self.cfg.enable_ai_command_result:
-                try:
-                    await self._plain_result(
-                        event, f"执行命令 {final_command} 后台失败，原因：{exc}"
-                    )
-                except Exception as result_exc:
-                    logger.warning(f"发送后台执行失败通知失败: {result_exc}")
+            state.error = exc
         finally:
+            state.started.set()
             cleanup = getattr(command_event, "cleanup_temporary_local_files", None)
             if cleanup:
                 cleanup()
+
+        if state.error is not None:
+            logger.error(f"后台执行指令 {final_command} 失败: {state.error}")
+            if self.cfg.enable_ai_command_result:
+                try:
+                    await self._plain_result(
+                        event, f"执行命令 {final_command} 后台失败，原因：{state.error}"
+                    )
+                except Exception as result_exc:
+                    logger.warning(f"发送后台执行失败通知失败: {result_exc}")
+
+    def _describe_stopped_pipeline(self, command_event: AstrMessageEvent) -> str:
+        """提取已停止管道的可观察错误，避免把宿主吞掉的异常伪装成成功。"""
+        observable_keys = (
+            "handler_error",
+            "pipeline_error",
+            "plugin_error",
+            "error",
+            "exception",
+        )
+        for key in observable_keys:
+            value = command_event.get_extra(key, None)
+            if isinstance(value, BaseException):
+                detail = str(value)
+            elif isinstance(value, str):
+                detail = value.strip()
+            elif isinstance(value, dict):
+                detail = str(
+                    value.get("message")
+                    or value.get("error")
+                    or value.get("detail")
+                    or ""
+                ).strip()
+            else:
+                detail = ""
+            if detail:
+                return f"AstrBot 管道终止: {detail}"
+
+        result = command_event.get_result()
+        if result is not None:
+            detail = self._summarize_output(result)
+            if detail:
+                return f"AstrBot 管道终止: {detail}"
+        return "AstrBot 管道终止，宿主未提供可观察的失败详情"
 
     def _find_stage_index(self, scheduler, stage_name: str) -> int:
         """查找后台调度应从哪个 AstrBot stage 开始恢复。"""
@@ -255,7 +385,8 @@ class CommandExecutor:
         command_event: AstrMessageEvent,
         pipeline_context: PipelineContext,
         final_command: str,
-    ) -> None:
+        state: _CommandTaskState,
+    ) -> asyncio.Task:
         """提交后台命令任务，并持有引用直到任务结束。"""
         task = asyncio.create_task(
             self._dispatch_command_task(
@@ -263,10 +394,133 @@ class CommandExecutor:
                 command_event,
                 pipeline_context,
                 final_command,
+                state,
             )
         )
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
+        return task
+
+    async def _wait_for_scheduler_start(
+        self, state: _CommandTaskState, task: asyncio.Task, timeout: float
+    ) -> bool:
+        """有限等待初始化握手，超时只结束监听，不取消后台命令。"""
+        start_waiter = asyncio.create_task(state.started.wait())
+        try:
+            await asyncio.wait({task, start_waiter}, timeout=timeout)
+            return state.scheduler_initialized
+        finally:
+            if not start_waiter.done():
+                start_waiter.cancel()
+                await asyncio.gather(start_waiter, return_exceptions=True)
+
+    def _resolve_result_wait(
+        self, result_mode: str, wait_seconds: float | None
+    ) -> tuple[float | None, dict | None]:
+        """校验监听参数；错误时保证命令尚未被调度。"""
+        if result_mode == "background":
+            return None, None
+        if result_mode == "auto":
+            return float(self.cfg.ai_command_auto_wait_seconds), None
+        if result_mode != "custom":
+            return None, {
+                "message": "result_mode 仅支持 auto、background 或 custom",
+                "error": "invalid_result_mode",
+            }
+        if (
+            type(wait_seconds) not in {int, float}
+            or not math.isfinite(wait_seconds)
+            or wait_seconds <= 0
+        ):
+            return None, {
+                "message": "custom 模式要求 wait_seconds 为正的有限数值",
+                "error": "invalid_wait_seconds",
+            }
+        if wait_seconds > self.cfg.ai_command_max_wait_seconds:
+            return None, {
+                "message": "wait_seconds 超过 ai_command_max_wait_seconds 配置上限",
+                "error": "wait_seconds_exceeds_max",
+            }
+        return float(wait_seconds), None
+
+    def _execution_result(
+        self,
+        *,
+        command: str,
+        matched_handlers: list,
+        suggestions: list[str],
+        is_forwarding_command: bool,
+        actor: str,
+        task: asyncio.Task,
+        state: _CommandTaskState,
+    ) -> dict:
+        """把后台任务状态映射为稳定的 LLM tool 响应。"""
+        if state.error is not None:
+            return {
+                "command": command,
+                "success": False,
+                "message": f"执行失败: {state.error}",
+                "matched_handlers": matched_handlers,
+                "messages": list(state.messages),
+                "result_type": "failed",
+                "error": str(state.error),
+                "suggestions": suggestions,
+                "is_forwarding_command": is_forwarding_command,
+                "actor": actor,
+                "dispatched": True,
+                "execution_state": "failed",
+                "output_complete": True,
+            }
+
+        if not state.scheduler_initialized:
+            return {
+                "command": command,
+                "success": False,
+                "message": "命令调度器未在等待窗口内完成初始化，后台任务仍在继续初始化",
+                "matched_handlers": matched_handlers,
+                "messages": list(state.messages),
+                "result_type": "not_started",
+                "error": "scheduler_start_timeout",
+                "suggestions": suggestions,
+                "is_forwarding_command": is_forwarding_command,
+                "actor": actor,
+                "dispatched": False,
+                "execution_state": "not_started",
+                "output_complete": False,
+            }
+
+        if task.done():
+            return {
+                "command": command,
+                "success": True,
+                "message": "命令执行完成",
+                "matched_handlers": matched_handlers,
+                "messages": list(state.messages),
+                "result_type": "completed",
+                "error": None,
+                "suggestions": suggestions,
+                "is_forwarding_command": is_forwarding_command,
+                "actor": actor,
+                "dispatched": True,
+                "execution_state": "completed",
+                "output_complete": True,
+            }
+
+        return {
+            "command": command,
+            "success": True,
+            "message": "命令已启动并继续后台执行",
+            "matched_handlers": matched_handlers,
+            "messages": list(state.messages),
+            "result_type": "forwarding" if is_forwarding_command else "dispatched",
+            "error": None,
+            "suggestions": suggestions,
+            "is_forwarding_command": is_forwarding_command,
+            "actor": actor,
+            "dispatched": True,
+            "execution_state": "running",
+            "output_complete": False,
+        }
 
     def _get_regex_examples(self, regex_command: str) -> list[str]:
         """获取正则命令的示例文本列表
@@ -349,6 +603,8 @@ class CommandExecutor:
         allowed_plugins: set[str] | None = None,
         search_suggestions_func=None,
         actor: str = "user",
+        result_mode: str = "auto",
+        wait_seconds: float | None = None,
     ) -> dict:
         """
         执行 AstrBot 命令
@@ -359,6 +615,8 @@ class CommandExecutor:
             allowed_plugins: 允许的插件集合
             search_suggestions_func: 搜索建议的回调函数
             actor: 执行角色，"user"（默认）或 "self"。
+            result_mode: 结果监听模式，auto、background 或 custom。
+            wait_seconds: custom 模式的监听窗口（秒）。
 
         Returns:
             执行结果字典
@@ -374,6 +632,9 @@ class CommandExecutor:
                 "messages": [],
                 "result_type": "none",
                 "error": "missing_command",
+                "execution_state": "rejected",
+                "output_complete": False,
+                "dispatched": False,
             }
 
         if command_text in {"execute_astrbot_command", "/execute_astrbot_command"}:
@@ -385,6 +646,9 @@ class CommandExecutor:
                 "messages": [],
                 "result_type": "none",
                 "error": "recursive_call_blocked",
+                "execution_state": "rejected",
+                "output_complete": False,
+                "dispatched": False,
             }
 
         final_command = self.normalize_command_text(command_text)
@@ -398,6 +662,9 @@ class CommandExecutor:
                 "messages": [],
                 "result_type": "none",
                 "error": "empty_command",
+                "execution_state": "rejected",
+                "output_complete": False,
+                "dispatched": False,
             }
 
         if actor not in {"user", "self"}:
@@ -409,6 +676,9 @@ class CommandExecutor:
                 "messages": [],
                 "result_type": "none",
                 "error": "invalid_actor",
+                "execution_state": "rejected",
+                "output_complete": False,
+                "dispatched": False,
             }
 
         if actor == "self" and not self.cfg.enable_ai_self_command:
@@ -420,6 +690,9 @@ class CommandExecutor:
                 "messages": [],
                 "result_type": "none",
                 "error": "self_actor_disabled",
+                "execution_state": "rejected",
+                "output_complete": False,
+                "dispatched": False,
             }
 
         if actor == "self" and not event.get_self_id():
@@ -431,6 +704,24 @@ class CommandExecutor:
                 "messages": [],
                 "result_type": "none",
                 "error": "missing_self_id",
+                "execution_state": "rejected",
+                "output_complete": False,
+                "dispatched": False,
+            }
+
+        wait_window, wait_error = self._resolve_result_wait(result_mode, wait_seconds)
+        if wait_error is not None:
+            return {
+                "command": final_command,
+                "success": False,
+                "message": wait_error["message"],
+                "matched_handlers": [],
+                "messages": [],
+                "result_type": "none",
+                "error": wait_error["error"],
+                "execution_state": "rejected",
+                "output_complete": False,
+                "dispatched": False,
             }
 
         try:
@@ -464,6 +755,8 @@ class CommandExecutor:
                     )
 
             command_event = self._build_command_event(event, execution_text, actor)
+            state = _CommandTaskState()
+            self._attach_output_capture(command_event, state)
             execution = await self._run_waking_check(command_event, actor)
             matched_handlers = execution["matched_handlers"]
             result_type = execution["result_type"]
@@ -563,6 +856,9 @@ class CommandExecutor:
                         "result_type": "generic_only",
                         "error": "command_not_found",
                         "suggestions": suggestions,
+                        "execution_state": "rejected",
+                        "output_complete": False,
+                        "dispatched": False,
                     }
 
             # 检查黑名单（但跳过自定义命令组的转发命令）
@@ -600,6 +896,9 @@ class CommandExecutor:
                         "result_type": "blocked",
                         "error": "blacklisted_plugin",
                         "suggestions": [],
+                        "execution_state": "rejected",
+                        "output_complete": False,
+                        "dispatched": False,
                     }
 
             if not matched_handlers:
@@ -622,6 +921,9 @@ class CommandExecutor:
                     if not suggestions
                     else "no_handler_matched",
                     "suggestions": suggestions,
+                    "execution_state": "rejected",
+                    "output_complete": False,
+                    "dispatched": False,
                 }
 
             if execution.get("stopped"):
@@ -643,21 +945,35 @@ class CommandExecutor:
                     "error": "command_stopped",
                     "suggestions": suggestions,
                     "is_forwarding_command": is_forwarding_command,
+                    "execution_state": "rejected",
+                    "output_complete": False,
+                    "dispatched": False,
                 }
 
-            if is_forwarding_command:
-                message = f"命令 '{stripped_command}' 是转发命令，已提交后台处理"
-            else:
-                message = f"命令已提交后台执行，命中 {len(matched_handlers)} 个处理器"
-
-            self._schedule_command_task(
+            task = self._schedule_command_task(
                 event,
                 command_event,
                 execution["pipeline_context"],
                 final_command,
+                state,
             )
 
-            if self.cfg.enable_ai_command_result:
+            # background 没有结果监听窗口，使用既有 auto 窗口作为初始化握手上限；
+            # auto/custom 则共享各自的完整等待预算，且不会取消后台任务。
+            scheduler_start_timeout = (
+                wait_window
+                if wait_window is not None
+                else float(self.cfg.ai_command_auto_wait_seconds)
+            )
+            loop = asyncio.get_running_loop()
+            wait_started_at = loop.time()
+            await self._wait_for_scheduler_start(state, task, scheduler_start_timeout)
+
+            if (
+                self.cfg.enable_ai_command_result
+                and state.error is None
+                and state.scheduler_initialized
+            ):
                 try:
                     if is_forwarding_command:
                         await self._plain_result(
@@ -670,19 +986,25 @@ class CommandExecutor:
                 except Exception as result_exc:
                     logger.warning(f"发送执行结果通知失败: {result_exc}")
 
-            return {
-                "command": final_command,
-                "success": True,
-                "message": message,
-                "matched_handlers": matched_handlers,
-                "messages": [],
-                "result_type": "forwarding" if is_forwarding_command else "dispatched",
-                "error": None,
-                "suggestions": suggestions,
-                "is_forwarding_command": is_forwarding_command,
-                "actor": actor,
-                "dispatched": True,
-            }
+            if (
+                wait_window is not None
+                and not task.done()
+                and state.error is None
+                and state.scheduler_initialized
+            ):
+                # asyncio.wait 不会取消未完成任务；监听窗口仅影响 tool 返回时机。
+                elapsed = loop.time() - wait_started_at
+                await asyncio.wait({task}, timeout=max(0.0, wait_window - elapsed))
+
+            return self._execution_result(
+                command=final_command,
+                matched_handlers=matched_handlers,
+                suggestions=suggestions,
+                is_forwarding_command=is_forwarding_command,
+                actor=actor,
+                task=task,
+                state=state,
+            )
         except Exception as exc:
             logger.error(f"执行指令失败: {exc}", exc_info=True)
             return {
@@ -693,6 +1015,9 @@ class CommandExecutor:
                 "messages": [],
                 "result_type": "none",
                 "error": str(exc),
+                "execution_state": "failed",
+                "output_complete": True,
+                "dispatched": False,
             }
 
 

@@ -8,7 +8,7 @@
 
 ## 项目形态
 
-- 这是一个 AstrBot 帮助信息插件，提供可视化帮助菜单、命令搜索和 AI 命令发现/执行能力。
+- 这是一个 AstrBot 帮助信息插件，提供可视化帮助菜单、命令搜索、AI 命令发现/执行及自定义目录管理能力。
 - 插件入口是根目录 `main.py`；可复用逻辑按职责分层放在 `src/`。
 - 渲染模板和 CSS 资源放在 `templates/`。
 
@@ -38,6 +38,8 @@
 - 黑名单检查必须跳过通用处理器（`on_message` 等）。
 - 递归调用 `execute_astrbot_command` 被阻止。
 - 自定义命令组命令即使只匹配到通用处理器也不应被黑名单拦截。
+- `CustomGroupService` 统一 Web API 与 AI 的 8 项目录工具；配置重载或插件初始化必须重置它，使删除预览 token 失效。
+- `execute_astrbot_command` 的默认结果监听窗口由 `ai_command_auto_wait_seconds` 控制（默认 3 秒）；窗口结束不取消后台命令。
 - 本插件不提供插件管理功能、不修改 AstrBot 核心行为、不直接发送消息到平台。
 - 其他架构细节、配置边界和维护规则不要写进本文件，放到 `docs/project/` 或 `docs/dev/` 对应章节。
 

@@ -5,9 +5,10 @@ Contains Pydantic models for plugin configuration.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ...shared.constants import DefaultCFG
 
@@ -123,6 +124,12 @@ class HelpPluginConfig(BaseModel):
     enable_ai_self_command: bool = Field(
         default=False, description="允许AI以机器人自身身份执行命令"
     )
+    ai_command_auto_wait_seconds: float = Field(
+        default=3, description="AI 命令 tool 自动同步监听窗口（秒）"
+    )
+    ai_command_max_wait_seconds: float = Field(
+        default=60, description="AI 命令 tool 自定义等待上限（秒）"
+    )
     ignored_plugins: set[str] = Field(
         default_factory=lambda: DefaultCFG.IGNORED_PLUGINS.copy(),
         description="黑名单插件ID",
@@ -134,6 +141,24 @@ class HelpPluginConfig(BaseModel):
     regex: RegexConfig = Field(default_factory=RegexConfig)
     custom_groups: list[CustomGroupConfig] = Field(default_factory=list)
     rendering: RenderingConfig = Field(default_factory=RenderingConfig)
+
+    @model_validator(mode="after")
+    def validate_ai_command_wait_seconds(self) -> HelpPluginConfig:
+        """校验 AI tool 等待窗口，避免把同步监听误配为执行超时。"""
+        if not math.isfinite(self.ai_command_auto_wait_seconds):
+            raise ValueError("ai_command_auto_wait_seconds must be finite")
+        if not math.isfinite(self.ai_command_max_wait_seconds):
+            raise ValueError("ai_command_max_wait_seconds must be finite")
+        if self.ai_command_auto_wait_seconds <= 0:
+            raise ValueError("ai_command_auto_wait_seconds must be positive")
+        if self.ai_command_max_wait_seconds <= 0:
+            raise ValueError("ai_command_max_wait_seconds must be positive")
+        if self.ai_command_max_wait_seconds < self.ai_command_auto_wait_seconds:
+            raise ValueError(
+                "ai_command_max_wait_seconds must be greater than or equal to "
+                "ai_command_auto_wait_seconds"
+            )
+        return self
 
     @classmethod
     def from_astrbot_config(cls, raw_config: dict[str, Any] | None) -> HelpPluginConfig:
@@ -162,6 +187,12 @@ class HelpPluginConfig(BaseModel):
             enable_ai_command_notify=raw_config.get("enable_ai_command_notify", True),
             enable_ai_command_result=raw_config.get("enable_ai_command_result", True),
             enable_ai_self_command=raw_config.get("enable_ai_self_command", False),
+            ai_command_auto_wait_seconds=raw_config.get(
+                "ai_command_auto_wait_seconds", 3
+            ),
+            ai_command_max_wait_seconds=raw_config.get(
+                "ai_command_max_wait_seconds", 60
+            ),
             ignored_plugins=ignored_set,
             ai_command_blacklist=ai_blacklist_set,
             regex=regex_cfg,

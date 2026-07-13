@@ -163,6 +163,12 @@ class TestActorSignatureAndDefault:
         assert "actor" in sig.parameters
         assert sig.parameters["actor"].default == "user"
 
+    def test_signature_accepts_result_listening_options(self):
+        """执行器暴露同步监听模式与自定义等待参数。"""
+        sig = inspect.signature(CommandExecutor.execute)
+        assert sig.parameters["result_mode"].default == "auto"
+        assert sig.parameters["wait_seconds"].default is None
+
     def test_help_service_signature_accepts_actor(self):
         """HelpService.execute_command() accepts actor kwarg with default 'user'."""
         from src.application.services.help_service import HelpService
@@ -222,7 +228,12 @@ class TestAsyncDispatch:
         executor.cfg.enable_ai_command_notify = False
         executor.cfg.enable_ai_command_result = False
 
-        result = await executor.execute(event=mock_event, command="/help", actor="user")
+        result = await executor.execute(
+            event=mock_event,
+            command="/help",
+            actor="user",
+            result_mode="background",
+        )
         await asyncio.sleep(0)
 
         assert result["success"] is True, result
@@ -243,7 +254,12 @@ class TestAsyncDispatch:
         executor.cfg.enable_ai_command_notify = False
         executor.cfg.enable_ai_command_result = True
 
-        result = await executor.execute(event=mock_event, command="/help", actor="user")
+        result = await executor.execute(
+            event=mock_event,
+            command="/help",
+            actor="user",
+            result_mode="background",
+        )
 
         assert result["success"] is True, result
         assert any(
@@ -260,7 +276,12 @@ class TestAsyncDispatch:
         executor.cfg.enable_ai_command_notify = True
         executor.cfg.enable_ai_command_result = False
 
-        await executor.execute(event=mock_event, command="/help", actor="user")
+        await executor.execute(
+            event=mock_event,
+            command="/help",
+            actor="user",
+            result_mode="background",
+        )
 
         assert any(
             "正在执行命令" in str(m.get("content", ""))
@@ -284,7 +305,12 @@ class TestAsyncDispatch:
         executor.cfg.enable_ai_command_notify = True
         executor.cfg.enable_ai_command_result = True
 
-        result = await executor.execute(event=mock_event, command="/help", actor="user")
+        result = await executor.execute(
+            event=mock_event,
+            command="/help",
+            actor="user",
+            result_mode="background",
+        )
         await asyncio.sleep(0)
 
         assert result["success"] is True, result
@@ -302,7 +328,12 @@ class TestAsyncDispatch:
         executor.cfg.enable_ai_command_notify = False
         executor.cfg.enable_ai_command_result = False
 
-        result = await executor.execute(event=mock_event, command="/help", actor="user")
+        result = await executor.execute(
+            event=mock_event,
+            command="/help",
+            actor="user",
+            result_mode="background",
+        )
         await asyncio.sleep(0)
 
         assert result["success"] is True, result
@@ -323,7 +354,12 @@ class TestActorSelf:
     async def test_self_actor_disabled_by_default(self, mock_event):
         """self actor 默认禁用。"""
         executor = CommandExecutor()
-        result = await executor.execute(event=mock_event, command="/help", actor="self")
+        result = await executor.execute(
+            event=mock_event,
+            command="/help",
+            actor="self",
+            result_mode="background",
+        )
         assert result["success"] is False
         assert result["error"] == "self_actor_disabled"
         assert not _Scheduler.started.is_set()
@@ -349,7 +385,12 @@ class TestActorSelf:
         executor.cfg.enable_ai_command_notify = False
         executor.cfg.enable_ai_command_result = False
 
-        result = await executor.execute(event=mock_event, command="/help", actor="self")
+        result = await executor.execute(
+            event=mock_event,
+            command="/help",
+            actor="self",
+            result_mode="background",
+        )
         await asyncio.sleep(0)
 
         assert result["success"] is True, result
@@ -398,7 +439,12 @@ class TestActorSelf:
         executor.cfg.enable_ai_command_notify = False
         executor.cfg.enable_ai_command_result = False
 
-        result = await executor.execute(event=mock_event, command="/help", actor="user")
+        result = await executor.execute(
+            event=mock_event,
+            command="/help",
+            actor="user",
+            result_mode="background",
+        )
         await asyncio.sleep(0)
 
         assert result["success"] is True, result
@@ -453,3 +499,302 @@ class TestNoDispatchOnRejectedCommand:
         assert result["success"] is False
         assert result["error"] == "invalid_actor"
         assert not _Scheduler.started.is_set()
+
+
+class TestCommandResultListening:
+    """AI tool 只监听本次 synthetic event 的命令输出。"""
+
+    @pytest.mark.asyncio
+    async def test_auto_returns_completed_messages_and_keeps_chat_delivery(
+        self, mock_event
+    ):
+        """快速命令完成时，tool 与原聊天都能获得同一批结果。"""
+        _Scheduler.release.set()
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(event=mock_event, command="/help")
+
+        assert result["success"] is True
+        assert result["execution_state"] == "completed"
+        assert result["output_complete"] is True
+        assert result["messages"] == ["后台结果:/help"]
+        assert any(m.get("type") == "result" for m in mock_event.sent_messages)
+
+    @pytest.mark.asyncio
+    async def test_auto_timeout_keeps_task_running_without_cancellation(
+        self, mock_event
+    ):
+        """监听窗口结束只返回运行中，不会取消后台命令。"""
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+        executor.cfg.ai_command_auto_wait_seconds = 0.01
+
+        result = await executor.execute(event=mock_event, command="/help")
+
+        assert result["success"] is True
+        assert result["execution_state"] == "running"
+        assert result["output_complete"] is False
+        assert _Scheduler.started.is_set()
+        assert any(not task.cancelled() for task in executor._background_tasks)
+        _Scheduler.release.set()
+        await asyncio.gather(*executor._background_tasks)
+        assert any(m.get("type") == "result" for m in mock_event.sent_messages)
+
+    @pytest.mark.asyncio
+    async def test_background_waits_for_pipeline_start_handshake(self, mock_event):
+        """background 不会在调度器尚未启动时虚报已运行。"""
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(
+            event=mock_event, command="/help", result_mode="background"
+        )
+
+        assert result["success"] is True
+        assert result["execution_state"] == "running"
+        assert _Scheduler.started.is_set()
+        _Scheduler.release.set()
+        await asyncio.gather(*executor._background_tasks)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("result_mode", "wait_seconds"),
+        [
+            ("background", None),
+            ("auto", None),
+            ("custom", 0.01),
+        ],
+    )
+    async def test_stalled_scheduler_initialization_returns_not_started(
+        self, mock_event, monkeypatch, result_mode, wait_seconds
+    ):
+        """初始化卡住时，任意监听模式都不得永久等待或虚报已启动。"""
+        initialization_release = asyncio.Event()
+
+        async def blocked_initialize(scheduler):
+            await initialization_release.wait()
+
+        monkeypatch.setattr(_Scheduler, "initialize", blocked_initialize)
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+        executor.cfg.ai_command_auto_wait_seconds = 0.01
+
+        result = await executor.execute(
+            event=mock_event,
+            command="/help",
+            result_mode=result_mode,
+            wait_seconds=wait_seconds,
+        )
+
+        assert result["success"] is False
+        assert result["execution_state"] == "not_started"
+        assert result["result_type"] == "not_started"
+        assert result["error"] == "scheduler_start_timeout"
+        assert result["dispatched"] is False
+        assert result["output_complete"] is False
+
+        initialization_release.set()
+        _Scheduler.release.set()
+        await asyncio.gather(*executor._background_tasks)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("wait_seconds", [None, 0, -1, float("inf"), "bad"])
+    async def test_custom_rejects_invalid_wait_without_scheduling(
+        self, mock_event, wait_seconds
+    ):
+        """非法 custom 等待参数在命令启动前明确拒绝。"""
+        executor = CommandExecutor()
+
+        result = await executor.execute(
+            event=mock_event,
+            command="/help",
+            result_mode="custom",
+            wait_seconds=wait_seconds,
+        )
+
+        assert result["success"] is False
+        assert result["execution_state"] == "rejected"
+        assert result["error"] == "invalid_wait_seconds"
+        assert not _Scheduler.started.is_set()
+
+    @pytest.mark.asyncio
+    async def test_custom_rejects_value_above_configured_max_without_scheduling(
+        self, mock_event
+    ):
+        """custom 不得以过大等待值实际启动命令。"""
+        executor = CommandExecutor()
+        executor.cfg.ai_command_max_wait_seconds = 0.1
+
+        result = await executor.execute(
+            event=mock_event,
+            command="/help",
+            result_mode="custom",
+            wait_seconds=0.2,
+        )
+
+        assert result["success"] is False
+        assert result["execution_state"] == "rejected"
+        assert result["error"] == "wait_seconds_exceeds_max"
+        assert not _Scheduler.started.is_set()
+
+    @pytest.mark.asyncio
+    async def test_custom_returns_completed_result(self, mock_event):
+        """custom 在窗口内完成时返回完整捕获结果。"""
+        _Scheduler.release.set()
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(
+            event=mock_event,
+            command="/help",
+            result_mode="custom",
+            wait_seconds=0.1,
+        )
+
+        assert result["execution_state"] == "completed"
+        assert result["output_complete"] is True
+        assert result["messages"] == ["后台结果:/help"]
+
+    @pytest.mark.asyncio
+    async def test_auto_captures_multiple_and_streaming_outputs_only_from_command_event(
+        self, mock_event, monkeypatch
+    ):
+        """捕获多条及流式结果，但不会把全局主动发送误归因给命令。"""
+
+        async def process_stages(scheduler, command_event, from_stage=0):
+            scheduler.command_events.append(command_event)
+            scheduler.started.set()
+            await command_event.send("第一条")
+
+            async def chunks():
+                yield "流式一"
+                yield "流式二"
+
+            await command_event.send_streaming(chunks())
+            await mock_event.send("不属于 synthetic event 的全局消息")
+
+        monkeypatch.setattr(_Scheduler, "_process_stages", process_stages)
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(event=mock_event, command="/help")
+
+        assert result["execution_state"] == "completed"
+        assert result["messages"] == ["第一条", "流式一", "流式二"]
+        assert any(
+            m.get("content") == "不属于 synthetic event 的全局消息"
+            for m in mock_event.sent_messages
+        )
+
+    @pytest.mark.asyncio
+    async def test_auto_marks_non_text_components_without_exposing_paths(
+        self, mock_event, monkeypatch
+    ):
+        """图片等非文本输出只提供类型标记，不能泄露组件内的本地路径。"""
+
+        class _Image:
+            def __init__(self):
+                self.path = "/private/tmp/secret.png"
+
+        async def process_stages(scheduler, command_event, from_stage=0):
+            scheduler.command_events.append(command_event)
+            scheduler.started.set()
+            await command_event.send(MockMessageEventResult(chain=[_Image()]))
+
+        monkeypatch.setattr(_Scheduler, "_process_stages", process_stages)
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(event=mock_event, command="/help")
+
+        assert result["messages"] == ["[_Image]"]
+        assert "/private/tmp/secret.png" not in str(result["messages"])
+
+    @pytest.mark.asyncio
+    async def test_auto_reports_background_exception_observed_in_window(
+        self, mock_event, monkeypatch
+    ):
+        """等待窗口内的后台异常必须向 tool 暴露真实失败原因。"""
+
+        async def process_stages(scheduler, command_event, from_stage=0):
+            scheduler.command_events.append(command_event)
+            scheduler.started.set()
+            raise RuntimeError("模拟处理器失败")
+
+        monkeypatch.setattr(_Scheduler, "_process_stages", process_stages)
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(event=mock_event, command="/help")
+
+        assert result["success"] is False
+        assert result["execution_state"] == "failed"
+        assert "模拟处理器失败" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_auto_reports_stopped_pipeline_error_without_false_success(
+        self, mock_event, monkeypatch
+    ):
+        """AstrBot 吞掉 handler 异常并停止事件时，tool 必须如实返回失败。"""
+
+        async def process_stages(scheduler, command_event, from_stage=0):
+            scheduler.command_events.append(command_event)
+            scheduler.started.set()
+            command_event.set_extra("handler_error", "模拟 handler 执行失败")
+            command_event.stop_event()
+
+        monkeypatch.setattr(_Scheduler, "_process_stages", process_stages)
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(event=mock_event, command="/help")
+
+        assert result["success"] is False
+        assert result["execution_state"] == "failed"
+        assert result["result_type"] == "failed"
+        assert "模拟 handler 执行失败" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_streaming_capture_keeps_concurrent_normal_send(
+        self, mock_event, monkeypatch
+    ):
+        """流式发送期间，并行普通 send 仍属于同一事件且必须被捕获。"""
+
+        async def process_stages(scheduler, command_event, from_stage=0):
+            scheduler.command_events.append(command_event)
+            scheduler.started.set()
+            send_normal = asyncio.Event()
+
+            async def concurrent_normal_send():
+                await send_normal.wait()
+                await command_event.send("并行普通输出")
+
+            normal_task = asyncio.create_task(concurrent_normal_send())
+
+            async def chunks():
+                yield "流式一"
+                send_normal.set()
+                await normal_task
+                yield "流式二"
+
+            await command_event.send_streaming(chunks())
+
+        monkeypatch.setattr(_Scheduler, "_process_stages", process_stages)
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(event=mock_event, command="/help")
+
+        assert result["execution_state"] == "completed"
+        assert result["messages"] == ["流式一", "并行普通输出", "流式二"]
