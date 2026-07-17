@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import inspect
 import json
+import re
 import sys
 import types
 from pathlib import Path
@@ -81,6 +83,58 @@ def _load_entry_module():
     package.__path__ = [str(Path(__file__).parent.parent)]
     sys.modules[package_name] = package
     return importlib.import_module(f"{package_name}.main")
+
+
+def test_execute_tool_declares_astrbot_parseable_parameters():
+    """AstrBot 仅从 Args 段生成 tool schema，不能退化为空参数工具。"""
+    module = _load_entry_module()
+
+    docstring = inspect.getdoc(module.HelpPlugin.execute_astrbot_command)
+    assert docstring is not None
+    parameter_types = dict(
+        re.findall(r"^[ \t]*(\w+)\((\w+)\):", docstring, flags=re.MULTILINE)
+    )
+
+    assert parameter_types == {
+        "command": "string",
+        "actor": "string",
+        "result_mode": "string",
+        "wait_seconds": "number",
+    }
+
+
+def test_all_parameterized_llm_tools_declare_astrbot_parseable_parameters():
+    """带参数的 AI tool 都必须避免被 AstrBot 注册成空 schema。"""
+    module = _load_entry_module()
+    tool_names = (
+        "search_command",
+        "execute_astrbot_command",
+        "create_custom_group",
+        "update_custom_group",
+        "preview_delete_custom_group",
+        "confirm_delete_custom_group",
+        "add_custom_group_command",
+        "update_custom_group_command",
+        "delete_custom_group_command",
+    )
+
+    for tool_name in tool_names:
+        tool = getattr(module.HelpPlugin, tool_name)
+        expected_names = {
+            parameter.name
+            for parameter in inspect.signature(tool).parameters.values()
+            if parameter.name not in {"self", "event"}
+        }
+        documented_names = {
+            name
+            for name, _ in re.findall(
+                r"^[ \t]*(\w+)\(([\w\[\]]+)\):",
+                inspect.getdoc(tool) or "",
+                flags=re.MULTILINE,
+            )
+        }
+
+        assert documented_names == expected_names, tool_name
 
 
 @pytest.mark.asyncio

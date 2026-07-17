@@ -82,7 +82,12 @@ class HelpPlugin(Star):
         keyword: str = "",
         permission_filter: str = "auto",
     ) -> str:
-        """搜索 AstrBot 命令或触发式，并返回可执行的完整命令信息。"""
+        """搜索 AstrBot 命令或触发式，并返回可执行的完整命令信息。
+
+        Args:
+            keyword(string): 命令名称、触发式或描述中的搜索关键词；留空可列出匹配项。
+            permission_filter(string): 权限筛选；``auto`` 按调用者权限筛选，或使用 ``normal``、``admin``、``all``。
+        """
         service = get_help_service()
         if permission_filter == "auto":
             is_admin = event.is_admin() if hasattr(event, "is_admin") else False
@@ -103,6 +108,12 @@ class HelpPlugin(Star):
         ``auto`` 默认监听配置的短窗口；``background`` 在调度启动后立即返回；
         ``custom`` 需要正的 ``wait_seconds``，且不得超过配置上限。命令输出始终
         继续发送到当前聊天，tool 仅返回本次 synthetic event 可归因的摘要。
+
+        Args:
+            command(string): 要执行的完整命令文本。即使目标命令本身无参数，也必须传入其触发式，例如 ``帮助``。
+            actor(string): 执行身份；``user`` 使用当前用户，``self`` 使用机器人自身（需开启对应配置）。
+            result_mode(string): 结果监听方式；可为 ``auto``、``background`` 或 ``custom``。
+            wait_seconds(number): ``custom`` 模式的监听秒数；其他模式不传。
         """
         service = get_help_service()
         return await service.execute_command(
@@ -125,7 +136,14 @@ class HelpPlugin(Star):
         priority: int = 0,
         hidden: bool = False,
     ) -> str:
-        """管理员创建空目录组；目录条目只描述已有命令，不会创建 handler。"""
+        """管理员创建空目录组；目录条目只描述已有命令，不会创建 handler。
+
+        Args:
+            group_name(string): 新目录组的唯一名称。
+            description(string): 面向帮助菜单的分组说明；可留空。
+            priority(number): 帮助目录中的排序优先级；数值越大越靠前。
+            hidden(boolean): 是否在普通用户的目录中隐藏该分组。
+        """
         denied = self._write_permission(event)
         if denied is not None:
             return denied
@@ -145,7 +163,15 @@ class HelpPlugin(Star):
         priority: int | None = None,
         hidden: bool | None = None,
     ) -> str:
-        """管理员按分组名称修改目录组的元数据，不会创建命令 handler。"""
+        """管理员按分组名称修改目录组的元数据，不会创建命令 handler。
+
+        Args:
+            group_name(string): 要修改的现有分组名称。
+            new_group_name(string): 新分组名称；不改名时不传。
+            description(string): 新分组说明；不修改时不传。
+            priority(number): 新排序优先级；不修改时不传。
+            hidden(boolean): 新的隐藏状态；不修改时不传。
+        """
         denied = self._write_permission(event)
         if denied is not None:
             return denied
@@ -163,7 +189,11 @@ class HelpPlugin(Star):
     async def preview_delete_custom_group(
         self, event: AstrMessageEvent, group_name: str
     ) -> str:
-        """管理员预览整组删除并获取一次性 token；必须再调用确认工具。"""
+        """管理员预览整组删除并获取一次性 token；必须再调用确认工具。
+
+        Args:
+            group_name(string): 要删除的目录组名称。
+        """
         denied = self._write_permission(event)
         if denied is not None:
             return denied
@@ -175,7 +205,12 @@ class HelpPlugin(Star):
     async def confirm_delete_custom_group(
         self, event: AstrMessageEvent, group_name: str, delete_token: str
     ) -> str:
-        """管理员使用 preview 返回的一次性 token 确认删除整组目录。"""
+        """管理员使用 preview 返回的一次性 token 确认删除整组目录。
+
+        Args:
+            group_name(string): preview 时使用的目录组名称。
+            delete_token(string): preview 接口返回的一次性确认 token。
+        """
         denied = self._write_permission(event)
         if denied is not None:
             return denied
@@ -200,7 +235,20 @@ class HelpPlugin(Star):
         examples: list[str] | None = None,
         sub_commands: list[str] | None = None,
     ) -> str:
-        """管理员新增目录条目；未验证真实命令只会返回 warning，不创建 handler。"""
+        """管理员新增目录条目；未验证真实命令只会返回 warning，不创建 handler。
+
+        Args:
+            group_name(string): 要写入的现有目录组名称。
+            command_type(string): 条目类型；``command`` 使用 ``command`` 触发式，``regex`` 使用 ``pattern``。
+            command(string): 普通命令的完整触发式；``command`` 类型必填。
+            pattern(string): 正则命令的模式；``regex`` 类型必填。
+            description(string): 命令说明；可留空。
+            is_admin(boolean): 是否仅允许管理员在帮助目录中看到该条目。
+            hidden(boolean): 是否在普通用户帮助目录中隐藏该条目。
+            aliases(list[string]): 命令别名列表；没有别名时不传。
+            examples(list[string]): 可直接执行的示例文本列表；没有示例时不传。
+            sub_commands(list[string]): 子命令说明列表；没有子命令时不传。
+        """
         denied = self._write_permission(event)
         if denied is not None:
             return denied
@@ -235,7 +283,21 @@ class HelpPlugin(Star):
         examples: list[str] | None = None,
         sub_commands: list[str] | None = None,
     ) -> str:
-        """管理员按命令触发式更新目录条目；不会创建或修改 handler。"""
+        """管理员按命令触发式更新目录条目；不会创建或修改 handler。
+
+        Args:
+            group_name(string): 条目所在的现有目录组名称。
+            command_type(string): 条目类型；``command`` 或 ``regex``。
+            current_trigger(string): 当前精确触发式；普通命令传命令文本，正则传模式。
+            command(string): 更新后的普通命令触发式；不修改时不传。
+            pattern(string): 更新后的正则模式；不修改时不传。
+            description(string): 更新后的命令说明；不修改时不传。
+            is_admin(boolean): 更新后的管理员可见性；不修改时不传。
+            hidden(boolean): 更新后的隐藏状态；不修改时不传。
+            aliases(list[string]): 更新后的完整别名列表；不修改时不传。
+            examples(list[string]): 更新后的完整示例列表；不修改时不传。
+            sub_commands(list[string]): 更新后的完整子命令列表；不修改时不传。
+        """
         denied = self._write_permission(event)
         if denied is not None:
             return denied
@@ -263,7 +325,13 @@ class HelpPlugin(Star):
         command_type: str,
         trigger: str,
     ) -> str:
-        """管理员按精确触发式删除单条目录命令；空分组仍保留。"""
+        """管理员按精确触发式删除单条目录命令；空分组仍保留。
+
+        Args:
+            group_name(string): 条目所在的目录组名称。
+            command_type(string): 条目类型；``command`` 或 ``regex``。
+            trigger(string): 要删除的精确触发式；普通命令传命令文本，正则传模式。
+        """
         denied = self._write_permission(event)
         if denied is not None:
             return denied

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.3] - 2026-07-18
+
+### Fixed
+- 修复 `execute_astrbot_command` 缺少 AstrBot 可解析的 `Args` 参数说明而被注册为空 schema 的问题；现在 AI 可传入 `command`，无额外参数的目标命令也应传入其完整触发式。
+
 ## [1.2.2] - 2026-07-18
 
 ### Fixed

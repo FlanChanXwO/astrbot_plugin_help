@@ -124,7 +124,7 @@
 本插件为 AI 提供以下工具函数：
 
 - `search_astrbot_command` — 搜索 AstrBot 命令，支持模糊匹配和权限过滤
-- `execute_astrbot_command` — 执行 AstrBot 命令，支持普通命令和正则触发命令，并监听本次 synthetic event 的结果
+- `execute_astrbot_command` — 执行 AstrBot 命令，支持普通命令和正则触发命令，并监听本次 synthetic event 的结果；`command` 必填且应传完整命令文本，即使目标命令本身不接受额外参数
 - 自定义目录管理（8 个工具）— `list_custom_groups`、`create_custom_group`、`update_custom_group`、`preview_delete_custom_group`、`confirm_delete_custom_group`、`add_custom_group_command`、`update_custom_group_command`、`delete_custom_group_command`
 
 在 AstrBot 的 LLM 配置中开启工具调用即可使用。
