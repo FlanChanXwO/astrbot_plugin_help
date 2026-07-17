@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 
 def replace_prefix(text: str, prefix: str) -> str:
     """替换命令前缀（默认为 /）。"""
@@ -32,7 +34,28 @@ def normalize_detail_query(query: str, prefixes: list[str]) -> str:
     return query.strip()
 
 
-def looks_like_custom_group_command(command: str, custom_groups=None) -> bool:
+def normalize_command_trigger(
+    trigger: str, prefixes: Sequence[str] | None = None
+) -> str:
+    """规范化普通命令触发式，用于比较目录条目与实际调用。"""
+    if not isinstance(trigger, str):
+        return ""
+
+    normalized = trigger.strip()
+    known_prefixes = {"/"}
+    if prefixes:
+        known_prefixes.update(prefix for prefix in prefixes if prefix)
+
+    for prefix in sorted(known_prefixes, key=len, reverse=True):
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix) :]
+            break
+    return normalized.casefold()
+
+
+def looks_like_custom_group_command(
+    command: str, custom_groups=None, prefixes: Sequence[str] | None = None
+) -> bool:
     """检查命令是否属于自定义命令组。
 
     Args:
@@ -57,7 +80,7 @@ def looks_like_custom_group_command(command: str, custom_groups=None) -> bool:
     if not custom_groups:
         return False
 
-    command_normalized = command.strip().lstrip("/")
+    command_normalized = normalize_command_trigger(command, prefixes)
 
     # 检查命令是否属于任何自定义命令组
     for group in custom_groups:
@@ -69,13 +92,17 @@ def looks_like_custom_group_command(command: str, custom_groups=None) -> bool:
                 continue
 
             # 检查命令名称
-            if cmd_config.command and cmd_config.command.strip() == command_normalized:
+            if (
+                cmd_config.command
+                and normalize_command_trigger(cmd_config.command, prefixes)
+                == command_normalized
+            ):
                 return True
 
             # 检查别名
             if cmd_config.aliases:
                 for alias in cmd_config.aliases:
-                    if alias.strip() == command_normalized:
+                    if normalize_command_trigger(alias, prefixes) == command_normalized:
                         return True
 
     return False

@@ -167,5 +167,5 @@ star_handlers_registry -> CommandIndex._build_index() -> _command_cache (dict)
 
 - 黑名单检查必须跳过通用处理器（`on_message` 等），因为通用处理器匹配几乎所有消息，不代表命令属于黑名单插件
 - 递归调用 `execute_astrbot_command` 被阻止
-- 自定义命令组命令即使只匹配到通用处理器也不应被黑名单拦截
+- 自定义命令组命令按当前命令前缀与大小写规则识别；即使只匹配到通用处理器也会继续调度且不应被黑名单拦截
 - `actor=self` 默认禁用；启用后仅把内部命令事件发送者改为 bot `self_id`，权限仍由 AstrBot 原管道判断，不自动授予管理员权限

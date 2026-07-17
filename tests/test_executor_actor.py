@@ -475,6 +475,63 @@ class TestNoDispatchOnRejectedCommand:
         assert not _Scheduler.started.is_set()
 
     @pytest.mark.asyncio
+    async def test_prefixed_case_variant_custom_command_dispatches_with_generic_handler(
+        self, mock_event
+    ):
+        """图片目录保留前缀/大小写时，仍应识别为自定义命令并交给通用处理器。"""
+        from src.infrastructure.config import get_config
+
+        get_config().custom_groups = [
+            CustomGroupConfig(
+                group_name="图片命令",
+                commands=[CustomGroupCommand(command="/HELP")],
+            )
+        ]
+        _WakingCheckStage.handlers = [
+            MockHandler("on_message", handler_module_path="builtin_commands")
+        ]
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(
+            event=mock_event, command="/help", result_mode="background"
+        )
+
+        assert result["success"] is True, result
+        assert result["dispatched"] is True
+        _Scheduler.release.set()
+        await asyncio.gather(*executor._background_tasks)
+
+    @pytest.mark.asyncio
+    async def test_custom_alias_with_configured_prefix_dispatches_with_generic_handler(
+        self, mock_event
+    ):
+        """自定义别名使用非默认前缀时，也不能被误判为不存在的通用消息。"""
+        from src.infrastructure.config import get_config
+
+        get_config().custom_groups = [
+            CustomGroupConfig(
+                group_name="图片命令",
+                commands=[CustomGroupCommand(command="帮助", aliases=["!HELP"])],
+            )
+        ]
+        _WakingCheckStage.handlers = [
+            MockHandler("on_message", handler_module_path="builtin_commands")
+        ]
+        executor = CommandExecutor()
+        executor.update_prefixes(["!"])
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+        _Scheduler.release.set()
+
+        result = await executor.execute(event=mock_event, command="!help")
+
+        assert result["success"] is True, result
+        assert result["dispatched"] is True
+        await asyncio.gather(*executor._background_tasks)
+
+    @pytest.mark.asyncio
     async def test_blacklisted_command_not_dispatched(self, mock_event):
         """黑名单命令不调度后台执行。"""
         _WakingCheckStage.handlers = [

@@ -796,7 +796,9 @@ class CommandExecutor:
             # 检查是否是自定义命令组的命令（包括正则命令）
             from ..utils.text import looks_like_custom_group_command
 
-            is_custom_group_cmd = looks_like_custom_group_command(stripped_command)
+            is_custom_group_cmd = looks_like_custom_group_command(
+                stripped_command, prefixes=self.prefixes
+            )
             # 正则命令可能无法被 looks_like_custom_group_command 识别，
             # 需要通过 command_index 二次确认
             is_custom_regex_cmd = False
