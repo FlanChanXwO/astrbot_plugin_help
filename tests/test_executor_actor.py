@@ -532,6 +532,42 @@ class TestNoDispatchOnRejectedCommand:
         await asyncio.gather(*executor._background_tasks)
 
     @pytest.mark.asyncio
+    async def test_custom_regex_trigger_text_dispatches_with_generic_handler(
+        self, mock_event
+    ):
+        """线上目录保存正则时，AI 直接使用触发文本也应识别为自定义命令。"""
+        from src.infrastructure.config import get_config
+
+        get_config().custom_groups = [
+            CustomGroupConfig(
+                group_name="异环",
+                commands=[
+                    CustomGroupCommand(
+                        type="regex",
+                        pattern="^nte帮助$",
+                        examples=["nte帮助"],
+                    )
+                ],
+            )
+        ]
+        _WakingCheckStage.handlers = [
+            MockHandler("on_message", handler_module_path="builtin_commands")
+        ]
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(
+            event=mock_event, command="nte帮助", result_mode="background"
+        )
+
+        assert result["success"] is True, result
+        assert result["dispatched"] is True
+        assert _Scheduler.command_events[0].get_message_str() == "nte帮助"
+        _Scheduler.release.set()
+        await asyncio.gather(*executor._background_tasks)
+
+    @pytest.mark.asyncio
     async def test_blacklisted_command_not_dispatched(self, mock_event):
         """黑名单命令不调度后台执行。"""
         _WakingCheckStage.handlers = [

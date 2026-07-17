@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+import re
 
 
 def replace_prefix(text: str, prefix: str) -> str:
@@ -105,4 +106,33 @@ def looks_like_custom_group_command(
                     if normalize_command_trigger(alias, prefixes) == command_normalized:
                         return True
 
+    return False
+
+
+def matches_custom_group_regex(text: str, custom_groups=None) -> bool:
+    """判断实际触发文本是否匹配可见的自定义正则命令。"""
+    if not isinstance(text, str) or not text.strip():
+        return False
+
+    if custom_groups is None:
+        try:
+            from ...infrastructure.config import get_config
+
+            custom_groups = get_config().custom_groups
+        except Exception:
+            return False
+
+    runtime_text = text.lower().strip()
+    for group in custom_groups or []:
+        if group.hidden:
+            continue
+        for command in group.commands:
+            if command.hidden or command.type != "regex" or not command.pattern:
+                continue
+            try:
+                if re.search(command.pattern, runtime_text, re.IGNORECASE):
+                    return True
+            except re.error:
+                # 旧存储可能含有失效正则；不能使正常调度路径崩溃。
+                continue
     return False

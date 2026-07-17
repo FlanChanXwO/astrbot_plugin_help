@@ -651,8 +651,23 @@ class CommandExecutor:
                 "dispatched": False,
             }
 
-        final_command = self.normalize_command_text(command_text)
-        stripped_command = self.strip_command_prefix(final_command)
+        from ..utils.text import matches_custom_group_regex
+
+        # AI 可能直接使用自定义正则的实际触发文本（如 nte帮助）。
+        # 这类文本不能补普通命令前缀，否则 RegexFilter 与转发处理器无法匹配。
+        is_direct_custom_regex = not command_text.startswith(
+            "regex:"
+        ) and matches_custom_group_regex(command_text)
+        final_command = (
+            command_text
+            if is_direct_custom_regex
+            else self.normalize_command_text(command_text)
+        )
+        stripped_command = (
+            final_command
+            if is_direct_custom_regex
+            else self.strip_command_prefix(final_command)
+        )
         if not stripped_command:
             return {
                 "command": final_command,
@@ -801,7 +816,7 @@ class CommandExecutor:
             )
             # 正则命令可能无法被 looks_like_custom_group_command 识别，
             # 需要通过 command_index 二次确认
-            is_custom_regex_cmd = False
+            is_custom_regex_cmd = is_direct_custom_regex
             if final_command.startswith("regex:"):
                 try:
                     cache = self.command_index.get_all_commands()
