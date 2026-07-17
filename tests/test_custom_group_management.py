@@ -75,8 +75,17 @@ def _load_entry_module():
     class TestStar:
         pass
 
+    class TestFunctionTool:
+        """保留显式 schema，供入口层注册行为断言。"""
+
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
     sys.modules["astrbot.api.event"].filter = PassthroughFilter
     sys.modules["astrbot.api.star"].Star = TestStar
+    tool_module = types.ModuleType("astrbot.core.agent.tool")
+    tool_module.FunctionTool = TestFunctionTool
+    sys.modules["astrbot.core.agent.tool"] = tool_module
     package_name = "helpinfo_entry_test"
     sys.modules.pop(f"{package_name}.main", None)
     package = types.ModuleType(package_name)
@@ -101,6 +110,49 @@ def test_execute_tool_declares_astrbot_parseable_parameters():
         "result_mode": "string",
         "wait_seconds": "number",
     }
+
+
+def test_execute_tool_registers_explicit_command_schema():
+    """不能只依赖装饰器推导，执行工具必须显式注册 command schema。"""
+    module = _load_entry_module()
+
+    class Context:
+        registered_tools: tuple[object, ...] = ()
+
+        def add_llm_tools(self, *tools):
+            self.registered_tools = tools
+
+    plugin = object.__new__(module.HelpPlugin)
+    plugin.context = Context()
+    plugin._register_execute_command_tool()
+
+    (tool,) = plugin.context.registered_tools
+    assert tool.name == "execute_astrbot_command"
+    assert tool.parameters == {
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": "要执行的完整命令文本。",
+            },
+            "actor": {
+                "type": "string",
+                "description": "执行身份；默认使用当前用户。",
+            },
+            "result_mode": {
+                "type": "string",
+                "description": "结果监听方式；默认 auto。",
+            },
+            "wait_seconds": {
+                "type": "number",
+                "description": "custom 模式的监听秒数。",
+            },
+        },
+        "required": ["command"],
+        "additionalProperties": False,
+    }
+    assert tool.handler == plugin.execute_astrbot_command
+    assert tool.handler_module_path == module.HelpPlugin.__module__
 
 
 def test_all_parameterized_llm_tools_declare_astrbot_parseable_parameters():

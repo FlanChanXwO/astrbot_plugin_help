@@ -12,8 +12,34 @@ from quart import jsonify, request
 from astrbot.api import AstrBotConfig
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
+from astrbot.core.agent.tool import FunctionTool
 
 from .src import get_custom_group_service, get_help_service, init_plugin_service
+
+
+EXECUTE_ASTRBOT_COMMAND_PARAMETERS: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "command": {
+            "type": "string",
+            "description": "要执行的完整命令文本。",
+        },
+        "actor": {
+            "type": "string",
+            "description": "执行身份；默认使用当前用户。",
+        },
+        "result_mode": {
+            "type": "string",
+            "description": "结果监听方式；默认 auto。",
+        },
+        "wait_seconds": {
+            "type": "number",
+            "description": "custom 模式的监听秒数。",
+        },
+    },
+    "required": ["command"],
+    "additionalProperties": False,
+}
 
 
 class HelpPlugin(Star):
@@ -23,6 +49,19 @@ class HelpPlugin(Star):
         super().__init__(context)
         init_plugin_service(context, config, Path(__file__).parent)
         self._register_web_apis()
+
+    def _register_execute_command_tool(self) -> None:
+        """以显式 JSON Schema 覆盖装饰器注册，确保 Agent 始终能传入 command。"""
+        tool = FunctionTool(
+            name="execute_astrbot_command",
+            description="执行 AstrBot 命令，并按需监听本次命令的结果。",
+            parameters=EXECUTE_ASTRBOT_COMMAND_PARAMETERS,
+            handler=self.execute_astrbot_command,
+        )
+        self.context.add_llm_tools(tool)
+        # 此处 handler 已绑定当前插件实例，故在 StarManager 绑定阶段结束后注册，
+        # 并显式保留插件归属，保证会话筛选与插件卸载仍能识别该工具。
+        tool.handler_module_path = self.__class__.__module__
 
     def _register_web_apis(self):
         """注册兼容既有管理页面的自定义命令组接口。"""
@@ -54,6 +93,7 @@ class HelpPlugin(Star):
 
     async def initialize(self):
         """Plugin initialization (async)"""
+        self._register_execute_command_tool()
         await get_help_service().initialize()
 
     async def terminate(self):

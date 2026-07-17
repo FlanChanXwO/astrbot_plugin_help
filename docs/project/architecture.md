@@ -159,7 +159,7 @@ star_handlers_registry -> CommandIndex._build_index() -> _command_cache (dict)
 ## AI Tool 系统
 
 - `search_astrbot_command`：命令发现，使用 jieba 分词、多维评分、权限过滤
-- `execute_astrbot_command`：安全调度，含黑名单检查（跳过通用处理器）、递归调用阻止和转发插件检测；其 AstrBot tool schema 从 docstring 的 `Args` 段生成，`command(string)` 必须存在，且即使目标命令无额外参数也要传入完整触发文本；正则命令使用示例文本作为 `message_str` 以触发 `RegexFilter` 匹配；只捕获本次 synthetic event，默认最多监听 3 秒，不取消长任务
+- `execute_astrbot_command`：安全调度，含黑名单检查（跳过通用处理器）、递归调用阻止和转发插件检测；初始化时通过 `FunctionTool` 显式注册 JSON Schema，`command(string)` 为必填字段，且即使目标命令无额外参数也要传入完整触发文本；docstring 的 `Args` 仍与函数签名保持同步，供装饰器兼容注册；正则命令使用示例文本作为 `message_str` 以触发 `RegexFilter` 匹配；只捕获本次 synthetic event，默认最多监听 3 秒，不取消长任务
 - 自定义目录工具：`list_custom_groups` 受读取权限过滤；其余七项写工具仅管理员可用，整组删除必须 preview→confirm
 - `list_all_plugins_and_commands`：完整命令清单，供 AI 上下文使用
 

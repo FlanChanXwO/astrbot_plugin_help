@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.4] - 2026-07-18
+
+### Fixed
+- `execute_astrbot_command` 改为通过 `FunctionTool` 显式注册 JSON Schema，强制暴露必填的 `command` 字段，避免装饰器注册链路下 Agent 仍收到空 `properties`。
+
 ## [1.2.3] - 2026-07-18
 
 ### Fixed
