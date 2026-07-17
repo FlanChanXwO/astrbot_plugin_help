@@ -598,6 +598,37 @@ class TestCommandResultListening:
     """AI tool 只监听本次 synthetic event 的命令输出。"""
 
     @pytest.mark.asyncio
+    async def test_custom_generic_command_without_local_output_is_external_dispatch(
+        self, mock_event, monkeypatch
+    ):
+        """外部路由命令无本地输出时，也必须明确告知 AI 已成功受理。"""
+
+        async def process_without_local_output(scheduler, event, from_stage=0) -> None:
+            scheduler.command_events.append(event)
+            scheduler.started.set()
+            await scheduler.release.wait()
+
+        monkeypatch.setattr(_Scheduler, "_process_stages", process_without_local_output)
+        _WakingCheckStage.handlers = [
+            MockHandler("on_message", handler_module_path="external_router")
+        ]
+        _Scheduler.release.set()
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(event=mock_event, command="/help")
+
+        assert result["success"] is True
+        assert result["dispatched"] is True
+        assert result["result_type"] == "external_dispatched"
+        assert result["execution_state"] == "accepted"
+        assert result["external_response_pending"] is True
+        assert result["output_complete"] is False
+        assert result["messages"] == []
+        assert "不要重复调用" in result["message"]
+
+    @pytest.mark.asyncio
     async def test_auto_returns_completed_messages_and_keeps_chat_delivery(
         self, mock_event
     ):

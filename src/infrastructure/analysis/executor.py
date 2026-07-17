@@ -450,6 +450,7 @@ class CommandExecutor:
         matched_handlers: list,
         suggestions: list[str],
         is_forwarding_command: bool,
+        is_external_routed_command: bool,
         actor: str,
         task: asyncio.Task,
         state: _CommandTaskState,
@@ -466,6 +467,7 @@ class CommandExecutor:
                 "error": str(state.error),
                 "suggestions": suggestions,
                 "is_forwarding_command": is_forwarding_command,
+                "external_response_pending": False,
                 "actor": actor,
                 "dispatched": True,
                 "execution_state": "failed",
@@ -483,9 +485,34 @@ class CommandExecutor:
                 "error": "scheduler_start_timeout",
                 "suggestions": suggestions,
                 "is_forwarding_command": is_forwarding_command,
+                "external_response_pending": False,
                 "actor": actor,
                 "dispatched": False,
                 "execution_state": "not_started",
+                "output_complete": False,
+            }
+
+        # 自定义目录命令只命中通用处理器时，常由桥接插件转交到外部 Bot
+        # 框架。该框架的回复不属于本次 synthetic event，不能把空捕获误报为失败。
+        if is_external_routed_command and not state.messages:
+            return {
+                "command": command,
+                "success": True,
+                "message": (
+                    "命令已由自定义命令路由器受理；回复会由外部 Bot 框架异步发送到"
+                    "当前聊天。本次调用未捕获本地输出不代表失败，请等待后续消息，"
+                    "不要重复调用。"
+                ),
+                "matched_handlers": matched_handlers,
+                "messages": [],
+                "result_type": "external_dispatched",
+                "error": None,
+                "suggestions": suggestions,
+                "is_forwarding_command": is_forwarding_command,
+                "external_response_pending": True,
+                "actor": actor,
+                "dispatched": True,
+                "execution_state": "accepted",
                 "output_complete": False,
             }
 
@@ -500,6 +527,7 @@ class CommandExecutor:
                 "error": None,
                 "suggestions": suggestions,
                 "is_forwarding_command": is_forwarding_command,
+                "external_response_pending": False,
                 "actor": actor,
                 "dispatched": True,
                 "execution_state": "completed",
@@ -516,6 +544,7 @@ class CommandExecutor:
             "error": None,
             "suggestions": suggestions,
             "is_forwarding_command": is_forwarding_command,
+            "external_response_pending": False,
             "actor": actor,
             "dispatched": True,
             "execution_state": "running",
@@ -829,6 +858,9 @@ class CommandExecutor:
 
             # 自定义命令组命令：普通命令或正则命令
             is_any_custom_cmd = is_custom_group_cmd or is_custom_regex_cmd
+            # 目录命令由通用处理器接收时，实际回复可能由桥接到的外部 Bot
+            # 框架发送；AstrBot 本次事件无法可靠捕获那条回复。
+            is_external_routed_command = is_any_custom_cmd and all_generic
             is_forwarding_command = (
                 is_any_custom_cmd and all_generic and has_forwarding_plugin
             )
@@ -992,7 +1024,13 @@ class CommandExecutor:
                 and state.scheduler_initialized
             ):
                 try:
-                    if is_forwarding_command:
+                    if is_external_routed_command:
+                        await self._plain_result(
+                            event,
+                            f"执行命令 {final_command}，已由自定义命令路由器受理；"
+                            "外部回复将异步发送到当前聊天",
+                        )
+                    elif is_forwarding_command:
                         await self._plain_result(
                             event, f"执行转发命令 {final_command}，已提交后台处理"
                         )
@@ -1018,6 +1056,7 @@ class CommandExecutor:
                 matched_handlers=matched_handlers,
                 suggestions=suggestions,
                 is_forwarding_command=is_forwarding_command,
+                is_external_routed_command=is_external_routed_command,
                 actor=actor,
                 task=task,
                 state=state,

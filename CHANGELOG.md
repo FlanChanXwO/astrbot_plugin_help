@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.2.5] - 2026-07-18
+
+### Improved
+- 自定义命令组命令只命中通用消息路由器且未捕获本地输出时，`execute_astrbot_command` 现在返回成功的 `external_dispatched` 状态，明确提示 AI 等待外部 Bot 的异步回复、不要重复调用。
+
 ## [1.2.4] - 2026-07-18
 
 ### Fixed

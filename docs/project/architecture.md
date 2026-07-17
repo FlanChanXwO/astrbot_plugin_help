@@ -84,7 +84,7 @@ Infrastructure  ->  CommandIndex, analyzers, HTMLHelpRenderer, CacheManager, Con
 - 默认 `auto` 模式监听本次 synthetic event 最多 3 秒；快速完成时把可归因文本返回 AI，长任务保持后台运行。`background` 立即返回，`custom` 受 60 秒配置上限约束
 - 正则命令使用缓存的示例文本或从模式派生的文本作为 `message_str`
 - 检测通用处理器（`on_message`、`on_all_message` 等）— 它们匹配几乎所有消息，不代表命令属于特定插件
-- 检测转发插件和自定义命令组命令
+- 自定义命令组命令只匹配通用处理器且未捕获本地输出时，返回 `external_dispatched`；这表示外部 Bot 路由已受理，AI 应等待当前聊天的异步回复而非重复调用
 - 黑名单检查跳过通用处理器，只扫描非通用处理器的 `handler_module_path`
 - 阻止递归调用 `execute_astrbot_command`
 - `actor=self` 需要显式开启 `enable_ai_self_command`，只改写内部事件发送者为 bot `self_id`，不自动提权
@@ -159,7 +159,7 @@ star_handlers_registry -> CommandIndex._build_index() -> _command_cache (dict)
 ## AI Tool 系统
 
 - `search_astrbot_command`：命令发现，使用 jieba 分词、多维评分、权限过滤
-- `execute_astrbot_command`：安全调度，含黑名单检查（跳过通用处理器）、递归调用阻止和转发插件检测；初始化时通过 `FunctionTool` 显式注册 JSON Schema，`command(string)` 为必填字段，且即使目标命令无额外参数也要传入完整触发文本；docstring 的 `Args` 仍与函数签名保持同步，供装饰器兼容注册；正则命令使用示例文本作为 `message_str` 以触发 `RegexFilter` 匹配；只捕获本次 synthetic event，默认最多监听 3 秒，不取消长任务
+- `execute_astrbot_command`：安全调度，含黑名单检查（跳过通用处理器）、递归调用阻止和转发插件检测；初始化时通过 `FunctionTool` 显式注册 JSON Schema，`command(string)` 为必填字段，且即使目标命令无额外参数也要传入完整触发文本；docstring 的 `Args` 仍与函数签名保持同步，供装饰器兼容注册；正则命令使用示例文本作为 `message_str` 以触发 `RegexFilter` 匹配；自定义目录命令由通用路由器受理而未捕获本地输出时返回 `external_dispatched`，表明外部框架会异步回复；只捕获本次 synthetic event，默认最多监听 3 秒，不取消长任务
 - 自定义目录工具：`list_custom_groups` 受读取权限过滤；其余七项写工具仅管理员可用，整组删除必须 preview→confirm
 - `list_all_plugins_and_commands`：完整命令清单，供 AI 上下文使用
 
