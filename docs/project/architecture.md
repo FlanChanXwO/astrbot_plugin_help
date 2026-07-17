@@ -11,7 +11,7 @@ main.py
   -> src.infrastructure.rendering.HTMLHelpRenderer
   -> src.infrastructure.rendering.HTMLTemplateManager
   -> src.infrastructure.rendering.CacheManager
-  -> src.application.services.HelpService
+  -> src.application.services.HelpService / CustomGroupService
        -> AstrBot star_handlers_registry
        -> AstrBot WakingCheckStage + ProcessStage
        -> AstrBot html_render() / t2i
@@ -24,7 +24,7 @@ main.py
 
 ```text
 Domain          ->  CommandEntry, RenderNode, PluginCommandSummary (纯 dataclass)
-Application     ->  HelpService 编排用例
+Application     ->  HelpService 命令/渲染编排，CustomGroupService 自定义目录用例
 Infrastructure  ->  CommandIndex, analyzers, HTMLHelpRenderer, CacheManager, ConfigManager
 ```
 
@@ -34,7 +34,7 @@ Infrastructure  ->  CommandIndex, analyzers, HTMLHelpRenderer, CacheManager, Con
 
 - 初始化路径、`ConfigManager`，并通过 `init_plugin_service()` 按依赖顺序引导所有单例
 - 注册 `/helps`（别名 `帮助`）、`/help_refresh`（别名 `刷新帮助缓存`，管理员）
-- 注册 LLM tool：`search_astrbot_command`、`execute_astrbot_command`
+- 注册 LLM tool：命令搜索/执行，以及 `list_custom_groups`、`create_custom_group`、`update_custom_group`、`preview_delete_custom_group`、`confirm_delete_custom_group`、`add_custom_group_command`、`update_custom_group_command`、`delete_custom_group_command` 八项目录管理工具
 - 注册 Web API：`/astrbot_plugin_helpinfo/custom-groups`（GET/POST create/update/delete）
 - 将事件转发给 `HelpService`
 
@@ -48,7 +48,15 @@ Infrastructure  ->  CommandIndex, analyzers, HTMLHelpRenderer, CacheManager, Con
 - 处理 `/helps` 命令的渲染触发
 - 处理 `search_astrbot_command` 的搜索请求
 - 处理 `execute_astrbot_command` 的执行请求
-- 处理自定义命令组的 CRUD
+
+## `src/application/services/custom_group_service.py`
+
+`CustomGroupService` 是 Web API 与 AI 目录工具共用的自定义命令组用例：
+
+- 以分组名称及命令触发式为自然键管理目录，持久化成功后才更新内存与失效缓存
+- AI 写入仅由入口层的管理员校验放行；普通用户读取自动过滤隐藏和管理员条目
+- 整组删除采用预览/一次性 token/确认；配置重载或插件重新初始化会重置服务，使旧 token 失效
+- 正则目录项必须可编译，且显式 examples 必须匹配；目录不会创建 AstrBot handler
 
 ## `src/infrastructure/analysis/command_index.py`
 
@@ -73,7 +81,7 @@ Infrastructure  ->  CommandIndex, analyzers, HTMLHelpRenderer, CacheManager, Con
 `CommandExecutor` 负责 AI 命令调度：
 
 - 构建 synthetic `AstrMessageEvent`，先通过 AstrBot 的 `WakingCheckStage` 完成命令匹配和权限过滤
-- 同步返回值只表示是否成功提交后台执行；后台任务从 `ProcessStage` 继续跑完整 AstrBot pipeline，命令最终输出由管道发送到当前聊天
+- 默认 `auto` 模式监听本次 synthetic event 最多 3 秒；快速完成时把可归因文本返回 AI，长任务保持后台运行。`background` 立即返回，`custom` 受 60 秒配置上限约束
 - 正则命令使用缓存的示例文本或从模式派生的文本作为 `message_str`
 - 检测通用处理器（`on_message`、`on_all_message` 等）— 它们匹配几乎所有消息，不代表命令属于特定插件
 - 检测转发插件和自定义命令组命令
@@ -117,7 +125,7 @@ Infrastructure  ->  CommandIndex, analyzers, HTMLHelpRenderer, CacheManager, Con
 几乎所有组件都是模块级单例：
 
 ```python
-get_help_service(), get_command_index(), get_command_analyzer()
+get_help_service(), get_custom_group_service(), get_command_index(), get_command_analyzer()
 get_command_executor(), get_html_renderer(), get_cache_manager()
 ```
 
@@ -142,7 +150,7 @@ star_handlers_registry -> CommandIndex._build_index() -> _command_cache (dict)
 
 ## 自定义命令组
 
-- 用户通过 WebUI API 定义，持久化到 `custom_groups.json`
+- 用户可通过 WebUI API 或 AI 的八项目录工具定义，持久化到 `custom_groups.json`
 - 作为虚拟插件 (`_custom_group_*`) 纳入命令索引
 - 可与同名真实插件合并
 - 支持 `command` 和 `regex` 类型，正则类型通过 `rstr` 自动生成示例
@@ -151,7 +159,8 @@ star_handlers_registry -> CommandIndex._build_index() -> _command_cache (dict)
 ## AI Tool 系统
 
 - `search_astrbot_command`：命令发现，使用 jieba 分词、多维评分、权限过滤
-- `execute_astrbot_command`：安全调度，含黑名单检查（跳过通用处理器）、递归调用阻止和转发插件检测；正则命令使用示例文本作为 `message_str` 以触发 `RegexFilter` 匹配；同步返回值只表示是否成功提交后台执行，不等待命令最终输出
+- `execute_astrbot_command`：安全调度，含黑名单检查（跳过通用处理器）、递归调用阻止和转发插件检测；正则命令使用示例文本作为 `message_str` 以触发 `RegexFilter` 匹配；只捕获本次 synthetic event，默认最多监听 3 秒，不取消长任务
+- 自定义目录工具：`list_custom_groups` 受读取权限过滤；其余七项写工具仅管理员可用，整组删除必须 preview→confirm
 - `list_all_plugins_and_commands`：完整命令清单，供 AI 上下文使用
 
 ## 安全边界

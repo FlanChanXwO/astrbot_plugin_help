@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Iterable
 
 from ...infrastructure.config import get_config
+from ..config.datamodels import CustomGroupConfig
 from ..utils.logger import get_logger
 from ..utils.paths import get_data_dir
 
@@ -14,6 +15,18 @@ if TYPE_CHECKING:
     pass
 
 logger = get_logger()
+
+
+def get_custom_groups_cache_material(
+    groups: Iterable[CustomGroupConfig],
+) -> list[dict[str, Any]]:
+    """返回稳定且完整的自定义分组缓存材料。"""
+    import json
+
+    return sorted(
+        (group.model_dump(mode="json") for group in groups),
+        key=lambda group: json.dumps(group, ensure_ascii=False, sort_keys=True),
+    )
 
 
 class CacheManager:
@@ -70,6 +83,9 @@ class CacheManager:
         except Exception:
             plugin_names = []
 
+        # 分组的命令、权限和展示信息都会影响帮助图，必须参与缓存失效判断。
+        custom_groups = get_custom_groups_cache_material(config.custom_groups)
+
         # 组合缓存键数据
         cache_data = {
             "plugins": plugin_names,
@@ -77,7 +93,7 @@ class CacheManager:
             "query": query,
             "is_admin": is_admin,
             "html_theme": config.html_theme,
-            "custom_groups": sorted(g.group_name for g in config.custom_groups),
+            "custom_groups": custom_groups,
         }
 
         # 生成哈希

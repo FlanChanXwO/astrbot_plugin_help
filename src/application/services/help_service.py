@@ -33,6 +33,8 @@ from ...infrastructure import (
     set_context,
 )
 from ...infrastructure.config import get_config, init_config, refresh_config
+from ...infrastructure.persistence.cache_manager import get_custom_groups_cache_material
+from .custom_group_service import reset_custom_group_service
 from ..dto import (
     CommandDetailResponse,
     ListCustomGroupsResponse,
@@ -140,8 +142,10 @@ class HelpService:
 
     def sync_config(self, raw_config: AstrBotConfig | None = None):
         """Sync config state"""
-        if raw_config:
+        if raw_config is not None:
             refresh_config(raw_config)
+            # 删除确认 token 仅绑定当前配置快照；重载后必须失效。
+            reset_custom_group_service()
         self.config = get_config()
         self.command_index.update_config()
         self.command_executor.cfg = get_config()
@@ -247,7 +251,9 @@ class HelpService:
             "is_admin": is_admin,
             "html_theme": self.config.rendering.html_theme,
             "use_t2i": self.config.rendering.use_t2i,
-            "custom_groups": sorted(g.group_name for g in self.config.custom_groups),
+            "custom_groups": get_custom_groups_cache_material(
+                self.config.custom_groups
+            ),
             "custom_commands": custom_commands_data,
         }
 
@@ -696,9 +702,14 @@ Suggestion: Check WebUI configuration or search with different keywords."""
         return response.to_json()
 
     async def execute_command(
-        self, event: AstrMessageEvent, command: str, actor: str = "user"
+        self,
+        event: AstrMessageEvent,
+        command: str,
+        actor: str = "user",
+        result_mode: str = "auto",
+        wait_seconds: float | None = None,
     ) -> str:
-        """Execute command"""
+        """执行命令，并把监听参数转发到命令执行器。"""
         allowed_plugins = await self._resolve_allowed_plugins(event)
 
         def search_suggestions_func(
@@ -720,6 +731,8 @@ Suggestion: Check WebUI configuration or search with different keywords."""
             allowed_plugins=allowed_plugins,
             search_suggestions_func=search_suggestions_func,
             actor=actor,
+            result_mode=result_mode,
+            wait_seconds=wait_seconds,
         )
 
         # Convert StarHandlerMetadata objects to dictionaries for JSON serialization
@@ -871,6 +884,8 @@ def init_plugin_service(
     set_context(context)
     init_plugin_paths(plugin_dir)  # Must be called before init_config
     init_config(config)
+    # 插件重新初始化意味着新的配置快照，旧删除确认 token 不得跨边界复用。
+    reset_custom_group_service()
 
     # Get help service instance (this creates CommandIndex)
     service = get_help_service()

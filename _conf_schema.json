@@ -17,6 +17,18 @@
     "default": false,
     "hint": "危险能力，默认关闭。开启后 execute_astrbot_command 的 actor=self 会把命令发送者改为机器人 self_id，并按 AstrBot 原权限链路判断权限；输出仍发送到当前聊天"
   },
+  "ai_command_auto_wait_seconds": {
+    "description": "AI 命令同步监听窗口（秒）",
+    "type": "float",
+    "default": 3,
+    "hint": "execute_astrbot_command 的 auto 模式同步监听结果的窗口；窗口结束不会取消仍在执行的命令"
+  },
+  "ai_command_max_wait_seconds": {
+    "description": "AI 命令自定义等待上限（秒）",
+    "type": "float",
+    "default": 60,
+    "hint": "execute_astrbot_command 的 custom 模式单次等待上限；仅限制 tool 等待，不会取消命令执行"
+  },
   "ai_command_blacklist": {
     "description": "AI命令调用黑名单",
     "type": "list",

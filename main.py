@@ -1,9 +1,11 @@
-"""AstrBot Help Plugin
+"""AstrBot Help Plugin。
 
-Provides HTML-rendered help menus, command search and detail queries, AI agent command execution, and other features.
+提供 HTML 帮助菜单、命令搜索、AI 命令执行和自定义命令组管理能力。
 """
 
+import json
 from pathlib import Path
+from typing import Any
 
 from quart import jsonify, request
 
@@ -11,36 +13,19 @@ from astrbot.api import AstrBotConfig
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
 
-from .src import (
-    CustomGroupCommand,
-    CustomGroupConfig,
-    get_cache_manager,
-    get_config,
-    get_help_service,
-    init_plugin_service,
-    invalidate_command_cache,
-    save_custom_groups_to_storage,
-    update_custom_groups_in_config,
-)
+from .src import get_custom_group_service, get_help_service, init_plugin_service
 
 
 class HelpPlugin(Star):
     """Help Plugin Main Class"""
 
     def __init__(self, context: Context, config: AstrBotConfig):
-        """Initialize plugin
-
-        Args:
-            context: AstrBot Context instance
-            config: AstrBot configuration
-        """
         super().__init__(context)
-
         init_plugin_service(context, config, Path(__file__).parent)
         self._register_web_apis()
 
     def _register_web_apis(self):
-        """Register web APIs for custom groups page"""
+        """注册兼容既有管理页面的自定义命令组接口。"""
         plugin_name = "astrbot_plugin_helpinfo"
         self.context.register_web_api(
             f"/{plugin_name}/custom-groups",
@@ -69,35 +54,25 @@ class HelpPlugin(Star):
 
     async def initialize(self):
         """Plugin initialization (async)"""
-        service = get_help_service()
-        await service.initialize()
+        await get_help_service().initialize()
 
     async def terminate(self):
         """Plugin termination (async)"""
-        service = get_help_service()
-        await service.terminate()
+        await get_help_service().terminate()
 
     @filter.command("helps", alias={"帮助"})
     async def show_menu(self, event: AstrMessageEvent, query: str = ""):
-        """Display command menu
-
-        Args:
-            event: Message event
-            query: Search keyword (optional)
-        """
-        service = get_help_service()
-        async for result in service.show_help(event, query, is_admin=event.is_admin()):
+        """显示命令帮助菜单。"""
+        async for result in get_help_service().show_help(
+            event, query, is_admin=event.is_admin()
+        ):
             yield result
 
     @filter.permission_type(filter.PermissionType.ADMIN)
     @filter.command("help_refresh", alias={"刷新帮助缓存"})
     async def refresh_cache(self, event: AstrMessageEvent):
-        """Refresh help plugin cache
-
-        Requires admin permission.
-        """
-        service = get_help_service()
-        message = await service.refresh_cache()
+        """刷新帮助插件缓存（仅管理员）。"""
+        message = await get_help_service().refresh_cache()
         yield event.plain_result(message)
 
     @filter.llm_tool(name="search_astrbot_command")
@@ -107,41 +82,11 @@ class HelpPlugin(Star):
         keyword: str = "",
         permission_filter: str = "auto",
     ) -> str:
-        """Search for AstrBot commands or triggers, or get detailed command information.
-
-        Smart behavior based on your input:
-        - When keyword is empty (optional): Lists all available plugins and commands
-        - When keyword matches multiple commands: Returns a list organized by plugin
-        - When keyword exactly matches one command: Returns detailed information for that command
-
-        Args:
-            keyword (str): Search keyword. Can be:
-                - Empty string "" to list all commands
-                - Part of a command name for fuzzy search (e.g., "help", "status")
-                - Exact command name for detailed info (e.g., "/help", "status")
-                - Regex trigger pattern (e.g., "来份色图")
-            permission_filter (str): Permission filter, options: "auto" (default, auto-detect from user role),
-                "normal" (normal member commands only), "admin" (admin commands only), "all" (all commands).
-
-        Returns:
-            For multiple matches: Results organized by plugin with command lists. Each command has:
-                - "command": The full command with the correct prefix (e.g., "/help", "!status")
-                - "type": Command type - "command" (regular) or "regex" (regex pattern)
-            For single exact match: Detailed command information. IMPORTANT: Use the "command" field
-                from the result directly when calling execute_astrbot_command, as it includes the correct prefix.
-            All responses include "command_prefix" field showing available prefixes (e.g., ["/"], ["!", "#"])
-        """
+        """搜索 AstrBot 命令或触发式，并返回可执行的完整命令信息。"""
         service = get_help_service()
-
-        # 自动检测用户权限
         if permission_filter == "auto":
-            # 判断用户是否为管理员
             is_admin = event.is_admin() if hasattr(event, "is_admin") else False
-            if is_admin:
-                permission_filter = "all"  # 管理员可以看到所有命令
-            else:
-                permission_filter = "normal"  # 普通用户只能看到普通命令
-
+            permission_filter = "all" if is_admin else "normal"
         return await service.search_command(event, keyword, permission_filter)
 
     @filter.llm_tool(name="execute_astrbot_command")
@@ -150,338 +95,331 @@ class HelpPlugin(Star):
         event: AstrMessageEvent,
         command: str = "",
         actor: str = "user",
+        result_mode: str = "auto",
+        wait_seconds: float | None = None,
     ) -> str:
-        """Execute an AstrBot command.
+        """执行已搜索到的 AstrBot 命令，并按需监听本次命令的结果。
 
-        Important: Always get the command string from search_command results first, as it includes
-        the correct prefix configured in the user's system (e.g., "/", "!", "#").
-
-        Important Limitations: Some commands require @mentioning other users (e.g., "设置被鹿 开 @user").
-        Since @ formats vary across platforms and you may not be able to obtain user IDs,
-        it is recommended to only call commands that don't require @others. If @ is needed,
-        guide the user to execute manually.
-
-        Note: The results returned by search_command include an "invokable" field.
-        If this field is false, it means the command's plugin is in the AI call blacklist,
-        and you should not attempt to call it.
-
-        Args:
-            command (str): The command to execute. IMPORTANT: Use the exact "command" field value
-                returned by search_command. This will already have the correct prefix.
-                - For regular commands: Already includes prefix, e.g., "/help", "!status"
-                - For regex commands: Use "regex:pattern" format, e.g., "regex:来份色图"
-                  The executor will automatically convert this to actual matching text
-                - Avoid calling commands that require @user, e.g., "设置被鹿 开 @user"
-            actor (str): Execution role. Options:
-                - "user" (default): Execute on behalf of the user.
-                - "self": Execute as the bot self_id. This is disabled unless
-                  enable_ai_self_command is explicitly enabled. Permissions are still
-                  decided by AstrBot's normal pipeline; this does not grant admin.
-                  Results and notifications are sent to the current chat.
-
-        Returns:
-            Dispatch result only. success=true means the command was accepted and submitted
-            to AstrBot's background pipeline; long-running command output may arrive later
-            in the chat and is not included in this JSON response.
+        ``auto`` 默认监听配置的短窗口；``background`` 在调度启动后立即返回；
+        ``custom`` 需要正的 ``wait_seconds``，且不得超过配置上限。命令输出始终
+        继续发送到当前聊天，tool 仅返回本次 synthetic event 可归因的摘要。
         """
         service = get_help_service()
-        return await service.execute_command(event, command, actor)
+        return await service.execute_command(
+            event, command, actor, result_mode, wait_seconds
+        )
+
+    @filter.llm_tool(name="list_custom_groups")
+    async def list_custom_groups(self, event: AstrMessageEvent) -> str:
+        """读取自定义命令目录；普通用户不会看到隐藏或管理员目录项。"""
+        return self._tool_json(
+            await get_custom_group_service().list_groups(is_admin=event.is_admin())
+        )
+
+    @filter.llm_tool(name="create_custom_group")
+    async def create_custom_group(
+        self,
+        event: AstrMessageEvent,
+        group_name: str,
+        description: str = "",
+        priority: int = 0,
+        hidden: bool = False,
+    ) -> str:
+        """管理员创建空目录组；目录条目只描述已有命令，不会创建 handler。"""
+        denied = self._write_permission(event)
+        if denied is not None:
+            return denied
+        return self._tool_json(
+            await get_custom_group_service().create_group(
+                group_name, description, priority, hidden
+            )
+        )
+
+    @filter.llm_tool(name="update_custom_group")
+    async def update_custom_group(
+        self,
+        event: AstrMessageEvent,
+        group_name: str,
+        new_group_name: str | None = None,
+        description: str | None = None,
+        priority: int | None = None,
+        hidden: bool | None = None,
+    ) -> str:
+        """管理员按分组名称修改目录组的元数据，不会创建命令 handler。"""
+        denied = self._write_permission(event)
+        if denied is not None:
+            return denied
+        return self._tool_json(
+            await get_custom_group_service().update_group(
+                group_name,
+                new_group_name=new_group_name,
+                description=description,
+                priority=priority,
+                hidden=hidden,
+            )
+        )
+
+    @filter.llm_tool(name="preview_delete_custom_group")
+    async def preview_delete_custom_group(
+        self, event: AstrMessageEvent, group_name: str
+    ) -> str:
+        """管理员预览整组删除并获取一次性 token；必须再调用确认工具。"""
+        denied = self._write_permission(event)
+        if denied is not None:
+            return denied
+        return self._tool_json(
+            await get_custom_group_service().preview_delete_group(group_name)
+        )
+
+    @filter.llm_tool(name="confirm_delete_custom_group")
+    async def confirm_delete_custom_group(
+        self, event: AstrMessageEvent, group_name: str, delete_token: str
+    ) -> str:
+        """管理员使用 preview 返回的一次性 token 确认删除整组目录。"""
+        denied = self._write_permission(event)
+        if denied is not None:
+            return denied
+        return self._tool_json(
+            await get_custom_group_service().confirm_delete_group(
+                group_name, delete_token
+            )
+        )
+
+    @filter.llm_tool(name="add_custom_group_command")
+    async def add_custom_group_command(
+        self,
+        event: AstrMessageEvent,
+        group_name: str,
+        command_type: str,
+        command: str | None = None,
+        pattern: str | None = None,
+        description: str = "",
+        is_admin: bool = False,
+        hidden: bool = False,
+        aliases: list[str] | None = None,
+        examples: list[str] | None = None,
+        sub_commands: list[str] | None = None,
+    ) -> str:
+        """管理员新增目录条目；未验证真实命令只会返回 warning，不创建 handler。"""
+        denied = self._write_permission(event)
+        if denied is not None:
+            return denied
+        return self._tool_json(
+            await get_custom_group_service().add_command(
+                group_name,
+                command_type,
+                command=command,
+                pattern=pattern,
+                description=description,
+                is_admin=is_admin,
+                hidden=hidden,
+                aliases=aliases,
+                examples=examples,
+                sub_commands=sub_commands,
+            )
+        )
+
+    @filter.llm_tool(name="update_custom_group_command")
+    async def update_custom_group_command(
+        self,
+        event: AstrMessageEvent,
+        group_name: str,
+        command_type: str,
+        current_trigger: str,
+        command: str | None = None,
+        pattern: str | None = None,
+        description: str | None = None,
+        is_admin: bool | None = None,
+        hidden: bool | None = None,
+        aliases: list[str] | None = None,
+        examples: list[str] | None = None,
+        sub_commands: list[str] | None = None,
+    ) -> str:
+        """管理员按命令触发式更新目录条目；不会创建或修改 handler。"""
+        denied = self._write_permission(event)
+        if denied is not None:
+            return denied
+        return self._tool_json(
+            await get_custom_group_service().update_command(
+                group_name,
+                command_type,
+                current_trigger,
+                command=command,
+                pattern=pattern,
+                description=description,
+                is_admin=is_admin,
+                hidden=hidden,
+                aliases=aliases,
+                examples=examples,
+                sub_commands=sub_commands,
+            )
+        )
+
+    @filter.llm_tool(name="delete_custom_group_command")
+    async def delete_custom_group_command(
+        self,
+        event: AstrMessageEvent,
+        group_name: str,
+        command_type: str,
+        trigger: str,
+    ) -> str:
+        """管理员按精确触发式删除单条目录命令；空分组仍保留。"""
+        denied = self._write_permission(event)
+        if denied is not None:
+            return denied
+        return self._tool_json(
+            await get_custom_group_service().delete_command(
+                group_name, command_type, trigger
+            )
+        )
 
     # === Web API Handlers for Custom Groups Page ===
 
     async def api_get_custom_groups(self):
-        """Get all custom groups"""
-        try:
-            cfg = get_config()
-            groups = []
-            for g in cfg.custom_groups:
-                commands = []
-                for c in g.commands:
-                    if c.type == "regex":
-                        commands.append(
-                            {
-                                "type": "regex",
-                                "pattern": c.pattern,
-                                "examples": c.examples,
-                                "description": c.description,
-                                "is_admin": c.is_admin,
-                                "hidden": c.hidden,
-                            }
-                        )
-                    else:
-                        commands.append(
-                            {
-                                "type": "command",
-                                "command": c.command,
-                                "aliases": c.aliases,
-                                "description": c.description,
-                                "is_admin": c.is_admin,
-                                "hidden": c.hidden,
-                            }
-                        )
-                groups.append(
-                    {
-                        "group_name": g.group_name,
-                        "description": g.description,
-                        "priority": g.priority,
-                        "hidden": g.hidden,
-                        "commands": commands,
-                    }
-                )
-            return jsonify({"success": True, "data": groups})
-        except Exception as e:
-            import traceback
-
-            print(f"api_get_custom_groups error: {e}")
-            traceback.print_exc()
-            return jsonify({"success": False, "error": str(e)}), 500
+        """保持原页面数据格式，并从同一服务读取完整管理员视图。"""
+        response = await get_custom_group_service().list_groups(is_admin=True)
+        if not response["success"]:
+            return self._web_response(response)
+        return jsonify(
+            {
+                "success": True,
+                "data": [self._web_group(group) for group in response["groups"]],
+            }
+        )
 
     async def api_create_custom_group(self):
-        """Create a new custom group"""
-        try:
-            data = await request.get_json()
-            print(f"[api_create_custom_group] Received data: {data}")
-            if not data or not data.get("group_name"):
-                return jsonify(
-                    {"success": False, "error": "Group name is required"}
-                ), 400
-
-            cfg = get_config()
-            custom_groups = list(cfg.custom_groups)  # Copy current groups
-
-            # Check for duplicate names
-            for g in custom_groups:
-                if g.group_name == data["group_name"]:
-                    return jsonify(
-                        {"success": False, "error": "Group name already exists"}
-                    ), 400
-
-            # Build commands list
-            commands = []
-            for cmd in data.get("commands", []):
-                print(f"[api_create_custom_group] Processing command: {cmd}")
-                cmd_type = cmd.get("type", "command")
-                if cmd_type == "regex":
-                    # Regex type: pattern is required
-                    if cmd.get("pattern"):
-                        commands.append(
-                            CustomGroupCommand(
-                                type="regex",
-                                pattern=cmd["pattern"],
-                                examples=[str(e) for e in cmd.get("examples", []) if e],
-                                description=cmd.get("description", ""),
-                                is_admin=cmd.get("is_admin", False),
-                                hidden=cmd.get("hidden", False),
-                            )
-                        )
-                    else:
-                        return jsonify(
-                            {
-                                "success": False,
-                                "error": "Regex command requires 'pattern' field",
-                            }
-                        ), 400
-                else:
-                    # Command type: command or aliases is required
-                    cmd_name = cmd.get("command", "").strip()
-                    aliases = cmd.get("aliases", [])
-
-                    if not cmd_name and not aliases:
-                        return jsonify(
-                            {
-                                "success": False,
-                                "error": "Command must have either 'command' or 'aliases' field",
-                            }
-                        ), 400
-
-                    sub_commands = cmd.get("sub_commands", [])
-                    print(
-                        f"[api_create_custom_group] Command '{cmd_name or aliases[0]}' sub_commands: {sub_commands}"
-                    )
-                    commands.append(
-                        CustomGroupCommand(
-                            type="command",
-                            command=cmd_name,
-                            description=cmd.get("description", ""),
-                            aliases=[str(a) for a in aliases if a] if aliases else [],
-                            sub_commands=[str(s) for s in sub_commands if s],
-                            is_admin=cmd.get("is_admin", False),
-                            hidden=cmd.get("hidden", False),
-                        )
-                    )
-
-            new_group = CustomGroupConfig(
-                group_name=data["group_name"],
-                description=data.get("description", ""),
-                priority=data.get("priority", 0),
-                hidden=data.get("hidden", False),
-                commands=commands,
-            )
-            print(
-                f"[api_create_custom_group] Created group with commands: {[{'cmd': c.command, 'sub': c.sub_commands} for c in commands]}"
-            )
-
-            custom_groups.append(new_group)
-
-            # Update in-memory config first
-            update_custom_groups_in_config(custom_groups)
-
-            # Invalidate command cache to rebuild with new custom groups
-            invalidate_command_cache()
-
-            # Clear image cache so next /helps regenerates with new custom groups
-            await get_cache_manager().clear_cache()
-
-            # Save to storage (best-effort, in-memory state is already consistent)
-            if not save_custom_groups_to_storage(custom_groups):
-                return jsonify(
-                    {"success": False, "error": "Failed to save to storage"}
-                ), 500
-
-            return jsonify({"success": True})
-        except Exception as e:
-            return jsonify({"success": False, "error": str(e)}), 500
+        """兼容原 POST payload，并以一次服务提交创建整组。"""
+        data = await self._request_json_object()
+        if isinstance(data, tuple):
+            return data
+        response = await get_custom_group_service().create_group_with_commands(
+            data.get("group_name", ""),
+            description=data.get("description", ""),
+            priority=data.get("priority", 0),
+            hidden=data.get("hidden", False),
+            commands=data["commands"] if "commands" in data else [],
+        )
+        return self._web_response(response)
 
     async def api_update_custom_group(self):
-        """Update an existing custom group"""
-        try:
-            data = await request.get_json()
-            if not data or "index" not in data:
-                return jsonify(
-                    {"success": False, "error": "Group index is required"}
-                ), 400
-
-            index = data["index"]
-            group_data = data.get("group", {})
-
-            cfg = get_config()
-            custom_groups = list(cfg.custom_groups)  # Copy current groups
-
-            if index < 0 or index >= len(custom_groups):
-                return jsonify({"success": False, "error": "Group not found"}), 404
-
-            # Check for duplicate names (excluding current index)
-            for i, g in enumerate(custom_groups):
-                if i != index and g.group_name == group_data.get("group_name"):
-                    return jsonify(
-                        {"success": False, "error": "Group name already exists"}
-                    ), 400
-
-            # Build commands list
-            commands = []
-            for cmd in group_data.get("commands", []):
-                print(f"[api_update_custom_group] Processing command: {cmd}")
-                cmd_type = cmd.get("type", "command")
-                if cmd_type == "regex":
-                    # Regex type: pattern is required
-                    if cmd.get("pattern"):
-                        commands.append(
-                            CustomGroupCommand(
-                                type="regex",
-                                pattern=cmd["pattern"],
-                                examples=[str(e) for e in cmd.get("examples", []) if e],
-                                description=cmd.get("description", ""),
-                                is_admin=cmd.get("is_admin", False),
-                                hidden=cmd.get("hidden", False),
-                            )
-                        )
-                    else:
-                        return jsonify(
-                            {
-                                "success": False,
-                                "error": "Regex command requires 'pattern' field",
-                            }
-                        ), 400
-                else:
-                    # Command type: command or aliases is required
-                    cmd_name = cmd.get("command", "").strip()
-                    aliases = cmd.get("aliases", [])
-
-                    if not cmd_name and not aliases:
-                        return jsonify(
-                            {
-                                "success": False,
-                                "error": "Command must have either 'command' or 'aliases' field",
-                            }
-                        ), 400
-
-                    sub_commands = cmd.get("sub_commands", [])
-                    print(
-                        f"[api_update_custom_group] Command '{cmd_name or aliases[0]}' sub_commands: {sub_commands}"
-                    )
-                    commands.append(
-                        CustomGroupCommand(
-                            type="command",
-                            command=cmd_name,
-                            description=cmd.get("description", ""),
-                            aliases=[str(a) for a in aliases if a] if aliases else [],
-                            sub_commands=[str(s) for s in sub_commands if s],
-                            is_admin=cmd.get("is_admin", False),
-                            hidden=cmd.get("hidden", False),
-                        )
-                    )
-
-            custom_groups[index] = CustomGroupConfig(
-                group_name=group_data["group_name"],
-                description=group_data.get("description", ""),
-                priority=group_data.get("priority", 0),
-                hidden=group_data.get("hidden", False),
-                commands=commands,
-            )
-
-            # Update in-memory config first
-            update_custom_groups_in_config(custom_groups)
-
-            # Invalidate command cache to rebuild with updated custom groups
-            invalidate_command_cache()
-
-            # Clear image cache so next /helps regenerates with updated custom groups
-            await get_cache_manager().clear_cache()
-
-            # Save to storage (best-effort, in-memory state is already consistent)
-            if not save_custom_groups_to_storage(custom_groups):
-                return jsonify(
-                    {"success": False, "error": "Failed to save to storage"}
-                ), 500
-
-            return jsonify({"success": True})
-        except Exception as e:
-            return jsonify({"success": False, "error": str(e)}), 500
+        """兼容 index 定位，先解析当前组名后按自然键原子整组替换。"""
+        data = await self._request_json_object()
+        if isinstance(data, tuple):
+            return data
+        index = data.get("index")
+        if type(index) is not int:
+            return jsonify({"success": False, "error": "Group index is required"}), 400
+        group_data = data.get("group")
+        if not isinstance(group_data, dict):
+            return jsonify({"success": False, "error": "Group is required"}), 400
+        listed = await get_custom_group_service().list_groups(is_admin=True)
+        if not listed["success"]:
+            return self._web_response(listed)
+        groups = listed["groups"]
+        if index < 0 or index >= len(groups):
+            return jsonify({"success": False, "error": "Group not found"}), 404
+        response = await get_custom_group_service().replace_group(
+            groups[index]["group_name"],
+            group_name=group_data.get("group_name", ""),
+            description=group_data.get("description", ""),
+            priority=group_data.get("priority", 0),
+            hidden=group_data.get("hidden", False),
+            commands=group_data["commands"] if "commands" in group_data else [],
+        )
+        return self._web_response(response)
 
     async def api_delete_custom_group(self):
-        """Delete a custom group"""
+        """兼容原单步删除 payload；AI 删除仍坚持 preview→confirm。"""
+        data = await self._request_json_object()
+        if isinstance(data, tuple):
+            return data
+        index = data.get("index")
+        if type(index) is not int:
+            return jsonify({"success": False, "error": "Group index is required"}), 400
+        listed = await get_custom_group_service().list_groups(is_admin=True)
+        if not listed["success"]:
+            return self._web_response(listed)
+        groups = listed["groups"]
+        if index < 0 or index >= len(groups):
+            return jsonify({"success": False, "error": "Group not found"}), 404
+        response = await get_custom_group_service().delete_group_for_web(
+            groups[index]["group_name"]
+        )
+        return self._web_response(response)
+
+    @staticmethod
+    def _tool_json(response: dict[str, Any]) -> str:
+        """将服务结构化结果交给 LLM tool。"""
+        return json.dumps(response, ensure_ascii=False)
+
+    @classmethod
+    def _write_permission(cls, event: AstrMessageEvent) -> str | None:
+        """写工具必须在调用服务前显式拒绝非管理员。"""
+        if event.is_admin():
+            return None
+        return cls._tool_json(
+            {
+                "success": False,
+                "error": "permission_denied",
+                "message": "只有管理员可以修改自定义命令目录",
+                "warnings": [],
+            }
+        )
+
+    @staticmethod
+    def _web_group(group: dict[str, Any]) -> dict[str, Any]:
+        """保留管理页面此前使用的命令对象字段形状。"""
+        commands = []
+        for command in group["commands"]:
+            item = {
+                "type": command["type"],
+                "description": command["description"],
+                "is_admin": command["is_admin"],
+                "hidden": command["hidden"],
+            }
+            if command["type"] == "regex":
+                item.update(pattern=command["pattern"], examples=command["examples"])
+            else:
+                item.update(command=command["command"], aliases=command["aliases"])
+            commands.append(item)
+        return {
+            "group_name": group["group_name"],
+            "description": group["description"],
+            "priority": group["priority"],
+            "hidden": group["hidden"],
+            "commands": commands,
+        }
+
+    @staticmethod
+    async def _request_json_object() -> dict[str, Any] | tuple[Any, int]:
+        """将无效 JSON 显式映射为 400，避免被包装成服务器成功。"""
         try:
             data = await request.get_json()
-            if not data or "index" not in data:
-                return jsonify(
-                    {"success": False, "error": "Group index is required"}
-                ), 400
+        except Exception:
+            return jsonify({"success": False, "error": "Invalid JSON body"}), 400
+        if not isinstance(data, dict):
+            return jsonify({"success": False, "error": "JSON object is required"}), 400
+        return data
 
-            index = data["index"]
-
-            cfg = get_config()
-            custom_groups = list(cfg.custom_groups)  # Copy current groups
-
-            if index < 0 or index >= len(custom_groups):
-                return jsonify({"success": False, "error": "Group not found"}), 404
-
-            custom_groups.pop(index)
-
-            # Update in-memory config first
-            update_custom_groups_in_config(custom_groups)
-
-            # Invalidate command cache to rebuild without deleted custom group
-            invalidate_command_cache()
-
-            # Clear image cache so next /helps regenerates without deleted custom group
-            await get_cache_manager().clear_cache()
-
-            # Save to storage (best-effort, in-memory state is already consistent)
-            if not save_custom_groups_to_storage(custom_groups):
-                return jsonify(
-                    {"success": False, "error": "Failed to save to storage"}
-                ), 500
-
-            return jsonify({"success": True})
-        except Exception as e:
-            return jsonify({"success": False, "error": str(e)}), 500
+    @staticmethod
+    def _web_response(response: dict[str, Any]):
+        """将服务错误映射为真实 HTTP 状态，同时维持 success/error 外形。"""
+        if response["success"]:
+            # 保持旧成功响应的最小形状；运行态失效等警告不能在 Web 边界丢失。
+            payload: dict[str, Any] = {"success": True}
+            if response.get("warnings"):
+                payload["warnings"] = response["warnings"]
+            return jsonify(payload)
+        error = response.get("error")
+        status = (
+            500
+            if error == "persistence_failed"
+            else 404
+            if error
+            in {
+                "group_not_found",
+                "command_not_found",
+            }
+            else 400
+        )
+        return jsonify({"success": False, "error": response["message"]}), status

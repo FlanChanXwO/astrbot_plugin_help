@@ -11,6 +11,8 @@
 | `enable_ai_command_notify` | `bool` | `true` | AI 执行命令前发送通知（"正在执行命令: <command>"）。 |
 | `enable_ai_command_result` | `bool` | `true` | AI 命令调度成功/失败发送提示；命令最终输出由后台命令自己发送。 |
 | `enable_ai_self_command` | `bool` | `false` | 允许 `execute_astrbot_command(actor="self")` 以机器人 `self_id` 作为发送者执行命令；权限仍由 AstrBot 正常判断，不自动提权。 |
+| `ai_command_auto_wait_seconds` | `float` | `3` | `execute_astrbot_command(result_mode="auto")` 监听本次 synthetic event 结果的窗口；窗口结束不会取消命令。 |
+| `ai_command_max_wait_seconds` | `float` | `60` | `result_mode="custom"` 的单次等待上限；必须为正数且不小于自动等待值。 |
 | `ai_command_blacklist` | `list` | `["astrbot", "astrbot-web-searcher", "astrbot-python-interpreter", "session_controller", "builtin_commands", "astrbot-reminder"]` | 禁止 AI 通过 `execute_astrbot_command` 调用的插件列表，使用 `startswith` 匹配。 |
 | `ignored_plugins` | `list` | `["astrbot", ..., "astrbot_plugin_help"]` | 帮助菜单中屏蔽的插件列表，使用 `name` 字段匹配。 |
 
@@ -39,7 +41,7 @@
 - 运行时代码通过 `ConfigManager` 读取配置，业务流程不要直接散落调用 `config.get(...)`。
 - 删除、重命名或改变字段类型时，必须说明兼容影响。
 - `ai_command_blacklist` 使用 `startswith` 匹配 `handler_module_path`；黑名单检查跳过通用处理器，因为通用处理器匹配几乎所有消息，不代表命令属于特定插件。
-- `execute_astrbot_command` 返回的是调度结果，不等待命令最终输出。长耗时命令在后台继续运行，输出由 AstrBot 命令自身发送到当前聊天。
+- `execute_astrbot_command` 的 `auto` 模式默认最多监听 3 秒；快速命令返回完整可归因文本，长耗时命令返回运行中并继续在后台发送结果。`background` 立即返回，`custom` 的等待值不得超过 `ai_command_max_wait_seconds`；监听窗口结束不取消命令。
 - `enable_ai_self_command` 是危险能力，默认关闭。开启后 `actor=self` 会临时把命令事件发送者改为当前 bot 的 `self_id`，同时让本次内部事件绕过 AstrBot 的 `ignore_bot_self_message`；是否有管理员权限仍取决于 AstrBot `admins_id`。
 - `ignored_plugins` 使用插件的 `name` 字段匹配。
 - `regex.max_examples` 控制正则命令示例生成数量，示例由 `rstr` 从模式自动生成。

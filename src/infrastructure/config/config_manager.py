@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -107,16 +110,65 @@ def _load_custom_groups_from_storage() -> list[CustomGroupConfig]:
         return []
 
 
-def save_custom_groups_to_storage(groups: list[CustomGroupConfig]) -> bool:
-    """保存自定义分组到持久化 JSON"""
-    storage_path = _get_custom_groups_storage_path()
+def _sync_storage_directory(directory: Path) -> None:
+    """尽力同步原子替换后的目录项，不支持时不影响已成功的保存。"""
+    logger = get_logger()
     try:
-        import json
+        directory_fd = os.open(directory, os.O_RDONLY)
+    except (AttributeError, OSError) as e:
+        logger.warning(
+            f"Custom groups file was saved but directory sync is unavailable for "
+            f"{directory}: {e}"
+        )
+        return
 
+    try:
+        os.fsync(directory_fd)
+    except OSError as e:
+        logger.warning(
+            f"Custom groups file was saved but directory sync failed for {directory}: {e}"
+        )
+    finally:
+        try:
+            os.close(directory_fd)
+        except OSError as e:
+            logger.warning(f"Failed to close custom groups directory handle: {e}")
+
+
+def save_custom_groups_to_storage(groups: list[CustomGroupConfig]) -> bool:
+    """通过同目录临时文件原子保存自定义分组到持久化 JSON。"""
+    storage_path = _get_custom_groups_storage_path()
+    logger = get_logger()
+    temporary_path: Path | None = None
+
+    try:
         storage_path.parent.mkdir(parents=True, exist_ok=True)
         data = [group.model_dump() for group in groups]
-        with open(storage_path, "w", encoding="utf-8") as f:
+
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=storage_path.parent,
+            prefix=f".{storage_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as f:
+            temporary_path = Path(f.name)
             json.dump(data, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+
+        os.replace(temporary_path, storage_path)
+        _sync_storage_directory(storage_path.parent)
         return True
-    except Exception:
+    except Exception as e:
+        logger.exception(f"Failed to save custom groups to {storage_path}: {e}")
         return False
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError as e:
+                logger.exception(
+                    f"Failed to remove temporary custom groups file {temporary_path}: {e}"
+                )

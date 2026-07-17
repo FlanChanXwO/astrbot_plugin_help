@@ -2,14 +2,17 @@
 
 from .application import (
     CommandDetailResponse,
+    CustomGroupService,
     ExecuteCommandResponse,
     HelpService,
     ListCustomGroupsResponse,
     ListPluginsResponse,
     SearchCommandResponse,
     get_help_service,
+    get_custom_group_service,
     init_plugin_service,
     reset_help_service,
+    reset_custom_group_service,
 )
 from .domain import (
     CommandEntry,
@@ -102,9 +105,12 @@ __all__ = [
     "get_cache_manager",
     # Application
     "HelpService",
+    "CustomGroupService",
+    "get_custom_group_service",
     "get_help_service",
     "init_plugin_service",
     "reset_help_service",
+    "reset_custom_group_service",
     "SearchCommandResponse",
     "CommandDetailResponse",
     "ExecuteCommandResponse",
