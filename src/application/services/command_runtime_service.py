@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from src.infrastructure.storage import CommandCatalog
+from ...infrastructure.storage import CommandCatalog
 
 from .command_catalog_service import CommandCatalogService
 from .command_history_service import CommandHistoryService

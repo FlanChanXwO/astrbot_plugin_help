@@ -7,13 +7,13 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
-from src.domain.entities.identity import (
+from ...domain.entities.identity import (
     IdentityCandidate,
     IdentityResolution,
     mask_user_id,
     normalize_identity_name,
 )
-from src.infrastructure.storage import CommandCatalog
+from ...infrastructure.storage import CommandCatalog
 
 
 class IdentityResolutionPipeline:

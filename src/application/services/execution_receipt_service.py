@@ -10,7 +10,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from src.infrastructure.storage import CommandCatalog
+from ...infrastructure.storage import CommandCatalog
 
 
 _PERSISTED_STATES = {

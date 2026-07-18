@@ -295,7 +295,6 @@ from astrbot.api.star import Context
 from astrbot.core.provider.func_tool_manager import FunctionToolManager
 
 root = Path(sys.argv[1])
-sys.path.insert(0, str(root))
 for name, path in (
     ("data", root.parent.parent),
     ("data.plugins", root.parent),

@@ -7,8 +7,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from src.domain.entities.identity import mask_user_id, normalize_identity_name
-from src.infrastructure.storage import CommandCatalog
+from ...domain.entities.identity import mask_user_id, normalize_identity_name
+from ...infrastructure.storage import CommandCatalog
 
 from .identity_resolution import IdentityResolutionPipeline
 

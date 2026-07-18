@@ -8,7 +8,7 @@ import sqlite3
 from dataclasses import asdict, is_dataclass
 from typing import Any, Collection, Mapping, Sequence
 
-from src.infrastructure.storage import CommandCatalog
+from ...infrastructure.storage import CommandCatalog
 
 
 class CommandCatalogService:
