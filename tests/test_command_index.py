@@ -66,16 +66,8 @@ class TestConfigCreation:
     def test_create_default_config(self):
         """测试创建默认配置."""
         config = MockDataFactory.create_config()
-        assert "ignored_plugins" in config
-        assert "rendering" in config
-
-    def test_create_config_with_ignored_plugins(self):
-        """测试创建带忽略插件的配置."""
-        config = MockDataFactory.create_config(
-            ignored_plugins=["plugin1", "plugin2"],
-        )
-        assert "plugin1" in config["ignored_plugins"]
-        assert "plugin2" in config["ignored_plugins"]
+        assert "ai_command_blacklist" in config
+        assert "regex" in config
 
 
 class TestTestPatterns:

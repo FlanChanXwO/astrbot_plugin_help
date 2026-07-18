@@ -8,67 +8,9 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from ...shared.constants import DefaultCFG
-
-# Rendering configuration validation boundaries
-# 这些常量定义了并发渲染任务的合理范围，防止配置错误导致系统问题
-MIN_CONCURRENT_TASKS = 1  # 最小值：防止信号量阻塞所有渲染
-MAX_CONCURRENT_TASKS = 20  # 最大值：防止并发任务过多导致系统过载
-
-
-class RenderingConfig(BaseModel):
-    """渲染引擎配置"""
-
-    timeout_analysis: float = Field(
-        default=DefaultCFG.TIMEOUT_ANALYSIS, description="数据分析超时（秒）"
-    )
-    max_concurrent_tasks: int = Field(
-        default=DefaultCFG.LIMIT_TASK, description="最大并发渲染数"
-    )
-    giant_threshold: int = Field(
-        default=DefaultCFG.LIMIT_GIANT, description="巨型块阈值（pt）"
-    )
-    jpeg_quality: int = Field(default=95, description="JPEG图片质量")
-    html_theme: str = Field(default="simple", description="HTML主题")
-    use_t2i: bool = Field(default=False, description="使用AstrBot内置t2i渲染")
-    render_wait_timeout: int = Field(default=10000, description="渲染等待超时（毫秒）")
-    render_image_timeout: int = Field(
-        default=5000, description="单张图片加载超时（毫秒）"
-    )
-
-    @field_validator("max_concurrent_tasks")
-    @classmethod
-    def validate_max_concurrent_tasks(cls, v: int) -> int:
-        """验证并限制并发渲染数在合理范围内
-
-        边界值使用模块级常量定义，便于统一调整和发现
-        """
-        if v < MIN_CONCURRENT_TASKS:
-            raise ValueError(
-                f"max_concurrent_tasks must be at least {MIN_CONCURRENT_TASKS} to prevent blocking"
-            )
-        if v > MAX_CONCURRENT_TASKS:
-            raise ValueError(
-                f"max_concurrent_tasks must be at most {MAX_CONCURRENT_TASKS} to prevent overload"
-            )
-        return v
-
-    @field_validator("render_wait_timeout", "render_image_timeout")
-    @classmethod
-    def validate_timeouts(cls, v: int) -> int:
-        """验证超时配置为正数"""
-        if v <= 0:
-            raise ValueError("Timeout values must be positive integers")
-        return v
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any] | None) -> RenderingConfig:
-        """从字典创建配置"""
-        if not data:
-            return cls()
-        return cls.model_validate({**cls().model_dump(), **(data or {})})
 
 
 class RegexConfig(BaseModel):
@@ -93,6 +35,9 @@ class CustomGroupCommand(BaseModel):
     type: str = Field(default="command", description="类型：command 或 regex")
     description: str = Field(default="", description="命令描述")
     is_admin: bool = Field(default=False, description="是否需要管理员权限")
+    permission_level: str = Field(default="normal", description="权限等级")
+    delegation_policy: str = Field(default="normal", description="跨用户委托策略")
+    history_mode: str = Field(default="command", description="历史记录模式")
     hidden: bool = Field(default=False, description="是否隐藏")
     aliases: list[str] = Field(
         default_factory=list, description="命令别名列表（供AI识别）"
@@ -100,6 +45,50 @@ class CustomGroupCommand(BaseModel):
     pattern: str = Field(default="", description="正则模式")
     examples: list[str] = Field(default_factory=list, description="示例列表")
     sub_commands: list[str] = Field(default_factory=list, description="子命令列表")
+    linked_plugin: str | None = Field(default=None, description="显式关联的插件")
+    availability: str = Field(default="available", description="关联插件可用状态")
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_permission_compatibility(cls, data: Any) -> Any:
+        """兼容旧 is_admin，同时让新 permission_level 成为权威字段。"""
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        if "permission_level" not in normalized:
+            normalized["permission_level"] = (
+                "admin" if normalized.get("is_admin") is True else "normal"
+            )
+        if "is_admin" not in normalized:
+            normalized["is_admin"] = normalized["permission_level"] == "admin"
+        if "delegation_policy" not in normalized:
+            normalized["delegation_policy"] = (
+                "sensitive" if normalized["permission_level"] == "admin" else "normal"
+            )
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_command_policy(self) -> CustomGroupCommand:
+        if self.permission_level not in {"normal", "admin"}:
+            raise ValueError("permission_level 必须为 normal 或 admin")
+        if self.is_admin != (self.permission_level == "admin"):
+            raise ValueError("is_admin 与 permission_level 不一致")
+        if self.delegation_policy not in {"normal", "sensitive", "forbidden"}:
+            raise ValueError("delegation_policy 值无效")
+        if self.permission_level == "admin" and self.delegation_policy == "normal":
+            raise ValueError("管理员命令 delegation_policy 至少为 sensitive")
+        if self.history_mode not in {"none", "command", "full"}:
+            raise ValueError("history_mode 值无效")
+        if (
+            self.delegation_policy in {"sensitive", "forbidden"}
+            and self.history_mode == "full"
+        ):
+            raise ValueError("敏感或禁止委托命令不能记录完整参数")
+        if self.linked_plugin is not None and not self.linked_plugin.strip():
+            raise ValueError("linked_plugin 不能为空字符串")
+        if self.availability not in {"available", "missing_plugin"}:
+            raise ValueError("availability 值无效")
+        return self
 
 
 class CustomGroupConfig(BaseModel):
@@ -130,9 +119,17 @@ class HelpPluginConfig(BaseModel):
     ai_command_max_wait_seconds: float = Field(
         default=60, description="AI 命令 tool 自定义等待上限（秒）"
     )
-    ignored_plugins: set[str] = Field(
-        default_factory=lambda: DefaultCFG.IGNORED_PLUGINS.copy(),
-        description="黑名单插件ID",
+    enable_sensitive_delegation: bool = Field(
+        default=False, description="允许管理员跨用户委托敏感命令"
+    )
+    allow_admin_target_override: bool = Field(
+        default=False, description="允许管理员绕过目标用户的委托隐私设置"
+    )
+    ai_command_dedupe_window_seconds: float = Field(
+        default=60, description="AI 命令重复调度抑制窗口（秒）"
+    )
+    command_history_retention_days: int = Field(
+        default=90, description="命令历史和观察身份的明细保留天数"
     )
     ai_command_blacklist: set[str] = Field(
         default_factory=lambda: DefaultCFG.AI_COMMAND_BLACKLIST.copy(),
@@ -140,7 +137,6 @@ class HelpPluginConfig(BaseModel):
     )
     regex: RegexConfig = Field(default_factory=RegexConfig)
     custom_groups: list[CustomGroupConfig] = Field(default_factory=list)
-    rendering: RenderingConfig = Field(default_factory=RenderingConfig)
 
     @model_validator(mode="after")
     def validate_ai_command_wait_seconds(self) -> HelpPluginConfig:
@@ -158,6 +154,15 @@ class HelpPluginConfig(BaseModel):
                 "ai_command_max_wait_seconds must be greater than or equal to "
                 "ai_command_auto_wait_seconds"
             )
+        if (
+            not math.isfinite(self.ai_command_dedupe_window_seconds)
+            or self.ai_command_dedupe_window_seconds < 0
+        ):
+            raise ValueError(
+                "ai_command_dedupe_window_seconds must be finite and non-negative"
+            )
+        if self.command_history_retention_days < 1:
+            raise ValueError("command_history_retention_days must be positive")
         return self
 
     @classmethod
@@ -167,15 +172,6 @@ class HelpPluginConfig(BaseModel):
             return cls()
 
         regex_cfg = RegexConfig.from_dict(raw_config.get("regex", {}))
-        render_cfg = RenderingConfig.from_dict(raw_config.get("rendering", {}))
-
-        ignored_list = raw_config.get("ignored_plugins")
-        ignored_set = (
-            set(ignored_list)
-            if ignored_list is not None
-            else DefaultCFG.IGNORED_PLUGINS.copy()
-        )
-
         ai_blacklist = raw_config.get("ai_command_blacklist")
         ai_blacklist_set = (
             set(ai_blacklist)
@@ -193,10 +189,20 @@ class HelpPluginConfig(BaseModel):
             ai_command_max_wait_seconds=raw_config.get(
                 "ai_command_max_wait_seconds", 60
             ),
-            ignored_plugins=ignored_set,
+            enable_sensitive_delegation=raw_config.get(
+                "enable_sensitive_delegation", False
+            ),
+            allow_admin_target_override=raw_config.get(
+                "allow_admin_target_override", False
+            ),
+            ai_command_dedupe_window_seconds=raw_config.get(
+                "ai_command_dedupe_window_seconds", 60
+            ),
+            command_history_retention_days=raw_config.get(
+                "command_history_retention_days", 90
+            ),
             ai_command_blacklist=ai_blacklist_set,
             regex=regex_cfg,
-            rendering=render_cfg,
         )
 
     def save(self, raw_config: dict[str, Any]) -> None:
@@ -205,32 +211,6 @@ class HelpPluginConfig(BaseModel):
         for key, value in config_dict.items():
             if key != "custom_groups":
                 raw_config[key] = value
-
-    # 向后兼容属性
-
-    @property
-    def timeout_analysis(self) -> float:
-        return self.rendering.timeout_analysis
-
-    @property
-    def max_concurrent_tasks(self) -> int:
-        return self.rendering.max_concurrent_tasks
-
-    @property
-    def giant_threshold(self) -> int:
-        return self.rendering.giant_threshold
-
-    @property
-    def jpeg_quality(self) -> int:
-        return self.rendering.jpeg_quality
-
-    @property
-    def html_theme(self) -> str:
-        return self.rendering.html_theme
-
-    @property
-    def use_t2i(self) -> bool:
-        return self.rendering.use_t2i
 
     @property
     def max_examples(self) -> int:

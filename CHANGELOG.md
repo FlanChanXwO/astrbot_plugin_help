@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.0.0] - 2026-07-18
+
+### Added
+- 新增 SQLite `command_catalog.db`，统一保存 runtime/custom 目录、权限与委托策略、历史模式、身份映射、执行回执和用户偏好。
+- 新增旧 `custom_groups.json` 自动备份+事务迁移，以校验和保证幂等；附带 dry-run/正式导入 CLI。
+- 新增插件加载/卸载目录同步、custom 保留、`missing_plugin` 状态和保守策略提升。
+- 新增会话身份解析，支持 UID、@、引用、个人别名、实时成员与 90 天观察快照。
+- 新增跨用户委托、隐私入口、个人别名、命令历史清除、偏好盲提升与插件内置 Agent Skill。
+- WebUI 新增权限、委托、历史、插件关联/缺失状态和示例编辑，命令目录支持分页。
+
+### Changed
+- `execute_astrbot_command` 使用标准回执状态，支持 3 秒快速结果、长任务 `accepted`、外部路由 `external_dispatched` 与 60 秒 `duplicate_suppressed`。
+- handler 已调度后才失败时保留 `failed` 回执，并以不可重试状态参与重复抑制，避免副作用命令被重复调用。
+- `search_astrbot_command` 新增目标用户与偏好模式，基础相关度至少 80%，偏好最多 20%。空关键词仅查 recent/frequent，不再返回完整大目录。
+- 自定义目录运行时权威源从 JSON 切换为 SQLite，Web API 主入口和 8 项 LLM tools 保持兼容。
+
+### Removed
+- **Breaking:** 删除 `/helps`、`/帮助`、`/help_refresh`、`/刷新帮助缓存`。
+- 删除图片帮助渲染模块、模板、字体、JPEG 缓存、相关配置与 Playwright/T2I 运行链路。
+
 ## [1.2.5] - 2026-07-18
 
 ### Improved

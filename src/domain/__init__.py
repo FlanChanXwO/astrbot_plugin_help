@@ -4,13 +4,12 @@
 """
 
 from .entities.command import CommandEntry, MatchedHandlerInfo
-from .entities.plugin import PluginCommandSummary, RenderNode
+from .entities.plugin import PluginCommandSummary
 from .exceptions import (
     CommandNotFoundError,
     ConfigNotInitializedError,
     ContextNotInitializedError,
     HelpPluginError,
-    RenderError,
 )
 
 __all__ = [
@@ -18,11 +17,9 @@ __all__ = [
     "CommandEntry",
     "MatchedHandlerInfo",
     "PluginCommandSummary",
-    "RenderNode",
     # Exceptions
     "HelpPluginError",
     "ConfigNotInitializedError",
     "ContextNotInitializedError",
-    "RenderError",
     "CommandNotFoundError",
 ]

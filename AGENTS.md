@@ -8,19 +8,18 @@
 
 ## 项目形态
 
-- 这是一个 AstrBot 帮助信息插件，提供可视化帮助菜单、命令搜索、AI 命令发现/执行及自定义目录管理能力。
+- 这是 AstrBot 智能命令代理，提供命令目录、AI 搜索/委托执行、身份解析、偏好和自定义目录。
 - 插件入口是根目录 `main.py`；可复用逻辑按职责分层放在 `src/`。
-- 渲染模板和 CSS 资源放在 `templates/`。
 
 主要目录：
 
 - `main.py`: 插件生命周期、命令入口、LLM tool 和 Web API 注册。
 - `src/application/services/`: HelpService 编排用例。
-- `src/infrastructure/analysis/`: CommandIndex、CommandAnalyzer、CommandExecutor。
-- `src/infrastructure/rendering/`: HTMLHelpRenderer、HTMLTemplateManager、CacheManager。
-- `src/infrastructure/config/`: ConfigManager 配置与自定义命令组持久化。
-- `src/domain/entities/`: CommandEntry、RenderNode、PluginCommandSummary。
-- `templates/`: Jinja2 帮助模板与 CSS。
+- `src/infrastructure/analysis/`: CommandIndex、CommandExecutor。
+- `src/infrastructure/storage/`: SQLite catalog 与旧 JSON 迁移。
+- `src/infrastructure/config/`: 类型安全配置。
+- `pages/dashboard/`: 分页命令目录与策略管理。
+- `skills/`: 插件内置 Agent 使用指南。
 - `tests/`: 测试入口，conftest.py 含 mock 注入。
 
 ## 阅读入口
@@ -33,7 +32,7 @@
 
 ## 硬约束
 
-- 不要把复杂索引、渲染组装或命令执行逻辑重新塞回 `main.py`。
+- 不要把复杂目录、身份、历史或命令执行逻辑塞回 `main.py`。
 - 不要在插件目录创建或依赖 `<plugin>/data` 作为运行态目录；插件数据目录使用 AstrBot 提供的 `StarTools.get_data_dir()`。
 - 黑名单检查必须跳过通用处理器（`on_message` 等）。
 - 递归调用 `execute_astrbot_command` 被阻止。
@@ -46,7 +45,7 @@
 ## 文档纪律
 
 - 文档不是可选收尾。行为、边界、入口、配置、流程、架构或维护约定变化时，必须同步更新对应 `docs/`。
-- 命令行为、配置项、黑名单规则、渲染模板、安全边界、测试或 lint 流程变化时，通常需要更新文档。
+- 命令行为、配置项、数据库、安全边界、WebUI、测试或 lint 流程变化时更新文档。
 - 如果修改 repo-wide 维护规则或 agent 入口约定，同步更新 `AGENTS.md` 和 `CLAUDE.md`。
 
 ## 测试与检查命令
@@ -54,11 +53,11 @@
 从插件目录运行：
 
 ```bash
-ruff check main.py src tests           # lint
-ruff format --check main.py src tests  # 格式检查
-python3 -m compileall main.py src tests  # 语法检查
+ruff check main.py src tests scripts           # lint
+ruff format --check main.py src tests scripts  # 格式检查
+python3 -m compileall main.py src tests scripts  # 语法检查
 pytest tests/ -v                       # pytest
-python tests/run_tests.py -v           # 正则示例测试
+python3 tests/run_tests.py -v           # 正则示例测试
 ```
 
 本地集成验证通常需要运行上层 AstrBot 入口：
@@ -70,7 +69,7 @@ python main.py
 
 ## 更新策略
 
-当架构、命令索引、黑名单规则、AI tool 语义、渲染流程或测试/lint 流程变化时，同步更新 `CLAUDE.md` 和 `AGENTS.md`。
+当架构、命令目录、黑名单、AI tool、SQLite 或测试/lint 流程变化时，同步更新 `CLAUDE.md` 和 `AGENTS.md`。
 
 ## 篇幅约束
 

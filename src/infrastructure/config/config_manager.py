@@ -25,7 +25,9 @@ def init_config(raw_config: dict[str, Any] | None) -> HelpPluginConfig | None:
     """初始化配置单例（在插件 __init__ 中调用一次）"""
     global _config_instance
     _config_instance = HelpPluginConfig.from_astrbot_config(raw_config)
-    _config_instance.custom_groups = _load_custom_groups_from_storage()
+    # v2 的权威源是 SQLite。此时 runtime 尚未建库，初始化完成后由
+    # HelpService 从 CommandCatalog 发布同一份内存快照。
+    _config_instance.custom_groups = []
     return _config_instance
 
 
@@ -47,8 +49,9 @@ def get_config() -> HelpPluginConfig:
 def refresh_config(raw_config: dict[str, Any] | None) -> HelpPluginConfig:
     """刷新配置（配置变更时调用）"""
     global _config_instance
+    current_groups = _config_instance.custom_groups if _config_instance else []
     _config_instance = HelpPluginConfig.from_astrbot_config(raw_config)
-    _config_instance.custom_groups = _load_custom_groups_from_storage()
+    _config_instance.custom_groups = current_groups
     return _config_instance
 
 

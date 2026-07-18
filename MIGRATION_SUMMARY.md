@@ -1,57 +1,38 @@
-# PIL to HTML+Playwright Migration Summary
+# v2 SQLite 迁移说明
 
-## Overview
+## 自动迁移
 
-Successfully migrated the help plugin from dual rendering (PIL/HTML) to HTML+Playwright exclusively.
+v2 首次启动会在 AstrBot 插件数据目录创建 `command_catalog.db`，然后检查旧 `custom_groups.json`：
 
-## Files Modified
+1. 读取并严格校验完整源文件；
+2. 在同目录写入带时间戳的字节级备份；
+3. 在一个事务内导入分组、命令、别名、示例和策略；
+4. 记录源文件 SHA-256 校验和与导入报告；
+5. 任一条目非法则回滚整批导入，不静默跳过。
 
-### 1. main.py
+每个数据库只接受一次旧目录导入：一旦存在 `legacy_imports` 记录，自动迁移和正式 CLI 都返回 `already_migrated`，即使来源路径或校验和后来改变，也不会覆盖可编辑的 SQLite 自定义目录。CLI 的 dry-run 仍可严格验证新来源；如需正式导入该来源，目标必须是新建或尚无迁移记录的数据库。
 
-- **Removed PIL imports**: `StarTools`, `InternalCFG`, `HelpRenderer`, `FontManager`, `HelpLayout`
-- **Removed attributes**: `schema_path`, `font_dirs`, `font_manager`, `layout`, `renderer`, etc.
-- **Removed methods**: `_refresh_resources()`, `_render_with_pil()`
-- **Simplified logic**: Always uses HTML renderer, no engine switching
-- **Updated cache key**: Removed `render_engine` from cache key calculation
+旧 runtime 命令缓存不会导入，命令会从 AstrBot registry 重新同步。插件卸载只删除 runtime 命令；custom 条目永不随插件卸载删除，显式关联缺失插件时标记为 `missing_plugin`。
 
-### 2. render/__init__.py
+## 独立 CLI
 
-- Removed PIL-related exports
-- Only exports HTML renderer classes
+```bash
+python scripts/migrate_custom_groups.py \
+  --source /path/custom_groups.json \
+  --database /path/command_catalog.db \
+  --dry-run
+```
 
-### 3. utils/__init__.py
+dry-run 只校验并输出报告，不创建备份、不写数据库。确认目标是新建或尚无 `legacy_imports` 记录的数据库后执行：
 
-- Removed exports: `FontManager`, `HelpLayout`, `verify_image_header`, `process_image_to_webp`
+```bash
+python scripts/migrate_custom_groups.py \
+  --source /path/custom_groups.json \
+  --database /path/command_catalog.db
+```
 
-### 4. core/__init__.py
+CLI 以 JSON 输出状态、校验和、组数、条目数、备份路径或具体错误；失败返回非零退出码。
 
-- Removed exports: `RenderTask`, `execute_render_task`, `force_memory_release`, `HelpRenderer`, `RenderResult`
+## v2 破坏性变化
 
-### 5. domain/config.py
-
-- **RenderingConfig**: Removed fields `timeout_compile`, `webp_limit`, `split_height`, `ppi`, `render_engine`
-- **HelpPluginConfig**: Removed methods `is_html_rendering()`, `get_render_engine()`
-
-### 6. _conf_schema.json
-
-- Removed: `render_engine`, `timeout_compile`, `ppi`, `webp_limit`, `split_height`
-- Retained: `html_theme`, `jpeg_quality`, `timeout_analysis`, `max_concurrent_tasks`, `giant_threshold`
-
-### 7. domain/constants.py
-
-- Removed: `LIMIT_WEBP`, `LIMIT_SIDE`, `LIMIT_PPI`, `TIMEOUT_COMPILE`
-- Removed `split_height` from `CACHE_SENSITIVE_CONFIGS`
-
-## Benefits
-
-1. **Simplified codebase**: Single rendering path reduces complexity
-2. **Better theming**: HTML+CSS enables richer visual customization
-3. **Consistent output**: No variations between PIL and HTML rendering
-4. **Easier maintenance**: One codebase to maintain instead of two
-
-## Migration Notes for Users
-
-1. The `render_engine` configuration option has been removed
-2. HTML rendering is now always used
-3. Existing theme configurations remain valid
-4. Cache will be automatically regenerated on first run
+图片帮助菜单、刷新入口、模板、字体、JPEG 缓存以及浏览器/T2I 依赖已移除。旧 `rendering` 和 `ignored_plugins` 配置不再使用。命令发现改由 LLM tools 与 WebUI 分页目录承担。

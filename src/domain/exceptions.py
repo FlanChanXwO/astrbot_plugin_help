@@ -19,12 +19,6 @@ class ContextNotInitializedError(HelpPluginError):
     pass
 
 
-class RenderError(HelpPluginError):
-    """渲染异常"""
-
-    pass
-
-
 class CommandNotFoundError(HelpPluginError):
     """命令未找到异常"""
 

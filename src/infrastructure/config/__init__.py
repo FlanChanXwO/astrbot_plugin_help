@@ -16,12 +16,10 @@ from .datamodels import (
     CustomGroupConfig,
     HelpPluginConfig,
     RegexConfig,
-    RenderingConfig,
 )
 
 __all__ = [
     "HelpPluginConfig",
-    "RenderingConfig",
     "RegexConfig",
     "CustomGroupCommand",
     "CustomGroupConfig",

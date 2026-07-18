@@ -8,7 +8,6 @@ from __future__ import annotations
 import collections
 import json
 import re
-from collections.abc import Iterable
 
 from astrbot.core.star.filter.command import CommandFilter
 from astrbot.core.star.filter.command_group import CommandGroupFilter
@@ -38,14 +37,6 @@ class CommandIndex:
         self._regex_example_limit = 10
         self._custom_groups: list[CustomGroupConfig] = []
         self.prefixes: list[str] = ["/"]
-
-    def update_ignored_plugins(self, ignored_plugins: Iterable[str]):
-        """更新忽略插件列表"""
-        config = get_config()
-        new_set = set(ignored_plugins)
-        if new_set != config.ignored_plugins:
-            config.ignored_plugins = new_set
-            self.reset_cache()
 
     def update_config(self):
         """从配置更新设置"""
@@ -515,7 +506,6 @@ class CommandIndex:
         """构建命令索引"""
         commands_dict: dict[str, dict] = {}
         plugin_dict: dict[str, PluginCommandSummary] = {}
-        config = get_config()
 
         try:
             context = get_context()
@@ -537,9 +527,6 @@ class CommandIndex:
 
         for star in all_stars:
             plugin_name = getattr(star, "name", "未知插件")
-            if plugin_name in config.ignored_plugins:
-                continue
-
             module_path = getattr(star, "module_path", None)
             if not module_path:
                 continue

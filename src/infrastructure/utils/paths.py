@@ -55,7 +55,7 @@ def get_data_dir() -> Path:
 
 
 def get_cache_dir() -> Path:
-    """Get cache directory for storing help images and command info JSON.
+    """Get cache directory for storing the command index JSON.
 
     Returns:
         Cache directory path under data/plugin_data/<plugin_name>/cache
@@ -92,38 +92,3 @@ def get_commands_cache_path() -> Path:
         Path to commands_cache.json
     """
     return get_cache_dir() / "commands_cache.json"
-
-
-def clear_cache_dir() -> None:
-    """Clear all contents in cache directory.
-
-    Called during plugin initialization to ensure fresh cache.
-    """
-    import shutil
-
-    cache_dir = get_cache_dir()
-    if cache_dir.exists():
-        # 删除所有文件和子目录，但保留 cache 目录本身
-        for item in cache_dir.iterdir():
-            if item.is_file():
-                item.unlink()
-            elif item.is_dir():
-                shutil.rmtree(item)
-
-
-def get_templates_dir() -> Path:
-    """Get templates directory.
-
-    Returns:
-        templates directory path
-    """
-    return get_plugin_dir() / "templates"
-
-
-def get_resources_dir() -> Path:
-    """Get resources directory.
-
-    Returns:
-        resources directory path
-    """
-    return get_plugin_dir() / "resources"

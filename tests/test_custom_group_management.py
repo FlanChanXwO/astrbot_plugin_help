@@ -7,6 +7,7 @@ import importlib
 import inspect
 import json
 import re
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -59,6 +60,7 @@ def _load_entry_module():
         """使入口装饰器在单元测试中保留原始协程函数。"""
 
         PermissionType = types.SimpleNamespace(ADMIN="admin")
+        EventMessageType = types.SimpleNamespace(GROUP_MESSAGE="group")
 
         @staticmethod
         def command(*_args, **_kwargs):
@@ -71,6 +73,11 @@ def _load_entry_module():
         @staticmethod
         def llm_tool(*_args, **_kwargs):
             return lambda function: function
+
+        event_message_type = llm_tool
+        on_astrbot_loaded = llm_tool
+        on_plugin_loaded = llm_tool
+        on_plugin_unloaded = llm_tool
 
     class TestStar:
         pass
@@ -109,6 +116,7 @@ def test_execute_tool_declares_astrbot_parseable_parameters():
         "actor": "string",
         "result_mode": "string",
         "wait_seconds": "number",
+        "target_user": "string",
     }
 
 
@@ -137,15 +145,21 @@ def test_execute_tool_registers_explicit_command_schema():
             },
             "actor": {
                 "type": "string",
+                "enum": ["user", "self"],
                 "description": "执行身份；默认使用当前用户。",
             },
             "result_mode": {
                 "type": "string",
+                "enum": ["auto", "background", "custom"],
                 "description": "结果监听方式；默认 auto。",
             },
             "wait_seconds": {
                 "type": "number",
                 "description": "custom 模式的监听秒数。",
+            },
+            "target_user": {
+                "type": "string",
+                "description": "可选目标用户：昵称、UID、@、reply_target 或 resolve 返回的 target_ref。",
             },
         },
         "required": ["command"],
@@ -153,6 +167,180 @@ def test_execute_tool_registers_explicit_command_schema():
     }
     assert tool.handler == plugin.execute_astrbot_command
     assert tool.handler_module_path == module.HelpPlugin.__module__
+
+
+def test_runtime_tools_register_explicit_nonempty_schemas():
+    """搜索、身份解析和别名写工具必须显式暴露参数。"""
+    module = _load_entry_module()
+
+    class Context:
+        registered_tools: tuple[object, ...] = ()
+
+        def add_llm_tools(self, *tools):
+            self.registered_tools = tools
+
+    plugin = object.__new__(module.HelpPlugin)
+    plugin.context = Context()
+    plugin._register_runtime_tools()
+
+    tools = {tool.name: tool for tool in plugin.context.registered_tools}
+    assert set(tools) == {
+        "search_astrbot_command",
+        "resolve_astrbot_user",
+        "set_astrbot_user_alias",
+        "list_astrbot_user_aliases",
+        "delete_astrbot_user_alias",
+    }
+    assert tools["resolve_astrbot_user"].parameters["required"] == ["reference"]
+    assert tools["set_astrbot_user_alias"].parameters["required"] == [
+        "alias",
+        "target_user",
+    ]
+    assert tools["delete_astrbot_user_alias"].parameters["required"] == ["alias"]
+    assert set(tools["search_astrbot_command"].parameters["properties"]) == {
+        "keyword",
+        "permission_filter",
+        "target_user",
+        "preference_mode",
+    }
+
+
+def test_custom_group_tools_register_explicit_strict_schemas():
+    """目录 tools 不依赖 docstring 推导，枚举与必填项必须进入真实 schema。"""
+    module = _load_entry_module()
+
+    class Context:
+        registered_tools: tuple[object, ...] = ()
+
+        def add_llm_tools(self, *tools):
+            self.registered_tools = tools
+
+    plugin = object.__new__(module.HelpPlugin)
+    plugin.context = Context()
+    plugin._register_custom_group_tools()
+
+    tools = {tool.name: tool for tool in plugin.context.registered_tools}
+    assert set(tools) == {
+        "list_custom_groups",
+        "create_custom_group",
+        "update_custom_group",
+        "preview_delete_custom_group",
+        "confirm_delete_custom_group",
+        "add_custom_group_command",
+        "update_custom_group_command",
+        "delete_custom_group_command",
+    }
+    assert len(tools) == len(plugin.context.registered_tools)
+    for tool in tools.values():
+        assert tool.parameters["additionalProperties"] is False
+        assert tool.handler_module_path == module.HelpPlugin.__module__
+    add_schema = tools["add_custom_group_command"].parameters
+    assert add_schema["required"] == ["group_name", "command_type"]
+    assert add_schema["properties"]["command_type"]["enum"] == ["command", "regex"]
+    assert add_schema["properties"]["permission_level"]["enum"] == ["normal", "admin"]
+    assert add_schema["properties"]["delegation_policy"]["enum"] == [
+        "normal",
+        "sensitive",
+        "forbidden",
+    ]
+    assert add_schema["properties"]["history_mode"]["enum"] == [
+        "none",
+        "command",
+        "full",
+    ]
+    update_schema = tools["update_custom_group_command"].parameters
+    assert update_schema["properties"]["clear_linked_plugin"] == {
+        "type": "boolean",
+        "description": "显式清除插件关联；与非空 linked_plugin 互斥。",
+    }
+    source = (Path(__file__).parent.parent / "main.py").read_text(encoding="utf-8")
+    for name in tools:
+        assert f'@filter.llm_tool(name="{name}")' not in source
+
+
+def test_real_astrbot_context_preserves_all_explicit_tool_ownership(tmp_path):
+    """真实 Context 会重写归属；注册完成后 13 个工具必须全部可由插件卸载识别。"""
+    root = Path(__file__).parent.parent
+    python_candidates = [Path(sys.executable)]
+    python_candidates.extend(
+        parent / ".venv/bin/python"
+        for parent in root.parents
+        if (parent / ".venv/bin/python").is_file()
+    )
+    real_astrbot_python = next(
+        (
+            executable
+            for executable in python_candidates
+            if subprocess.run(
+                [str(executable), "-c", "import astrbot"],
+                capture_output=True,
+                check=False,
+                cwd=tmp_path,
+            ).returncode
+            == 0
+        ),
+        None,
+    )
+    if real_astrbot_python is None:
+        pytest.skip("当前测试环境未安装真实 AstrBot SDK")
+    script = r"""
+import importlib.util
+import json
+import sys
+import types
+from pathlib import Path
+from types import SimpleNamespace
+
+from astrbot.api.star import Context
+from astrbot.core.provider.func_tool_manager import FunctionToolManager
+
+root = Path(sys.argv[1])
+sys.path.insert(0, str(root))
+for name, path in (
+    ("data", root.parent.parent),
+    ("data.plugins", root.parent),
+    ("data.plugins.astrbot_plugin_helpinfo", root),
+):
+    package = types.ModuleType(name)
+    package.__path__ = [str(path)]
+    sys.modules[name] = package
+spec = importlib.util.spec_from_file_location(
+    "data.plugins.astrbot_plugin_helpinfo.main", root / "main.py"
+)
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+
+context = object.__new__(Context)
+manager = FunctionToolManager()
+context.provider_manager = SimpleNamespace(llm_tools=manager)
+plugin = object.__new__(module.HelpPlugin)
+plugin.context = context
+plugin._register_runtime_tools()
+plugin._register_custom_group_tools()
+
+expected = "data.plugins.astrbot_plugin_helpinfo.main"
+owned = [tool.name for tool in manager.func_list if tool.handler_module_path == expected]
+removable = [
+    tool.name
+    for tool in manager.func_list
+    if tool.handler_module_path and tool.handler_module_path.startswith(expected)
+]
+print(json.dumps({"owned": owned, "removable": removable}))
+"""
+    completed = subprocess.run(
+        [str(real_astrbot_python), "-c", script, str(root)],
+        check=True,
+        capture_output=True,
+        text=True,
+        # 真实 AstrBot SDK 导入会初始化 cwd/data；隔离到 pytest 临时目录，
+        # 防止框架副作用污染插件根目录并掩盖运行态路径回归。
+        cwd=tmp_path,
+    )
+    result = json.loads(completed.stdout.strip().splitlines()[-1])
+
+    assert len(result["owned"]) == 13
+    assert set(result["removable"]) == set(result["owned"])
 
 
 def test_all_parameterized_llm_tools_declare_astrbot_parseable_parameters():
@@ -270,7 +458,7 @@ async def test_web_create_rejects_explicit_invalid_commands_without_mutating_gro
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
     monkeypatch.setattr(module, "get_custom_group_service", lambda: service)
     plugin = object.__new__(module.HelpPlugin)
@@ -313,7 +501,7 @@ async def test_web_update_rejects_explicit_null_commands_without_replacing_group
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
     monkeypatch.setattr(module, "get_custom_group_service", lambda: service)
     plugin = object.__new__(module.HelpPlugin)
@@ -348,7 +536,7 @@ async def test_web_success_response_keeps_runtime_invalidation_warnings(monkeypa
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=fail_index_invalidation,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
     monkeypatch.setattr(module, "get_custom_group_service", lambda: service)
     plugin = object.__new__(module.HelpPlugin)
@@ -381,17 +569,12 @@ def test_sync_config_resets_custom_group_service_on_reload(monkeypatch):
     class Executor:
         cfg = None
 
-    class Renderer:
-        def set_theme(self, _theme):
-            pass
-
     class Config:
-        rendering = types.SimpleNamespace(html_theme="simple")
+        pass
 
     service = object.__new__(help_service.HelpService)
     service.command_index = CommandIndex()
     service.command_executor = Executor()
-    service.renderer = Renderer()
     monkeypatch.setattr(help_service, "refresh_config", lambda _raw: None)
     monkeypatch.setattr(help_service, "get_config", lambda: Config())
     monkeypatch.setattr(
@@ -418,7 +601,7 @@ async def test_replace_group_validates_all_commands_before_one_atomic_commit():
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     response = await service.replace_group(
@@ -475,11 +658,16 @@ async def test_list_groups_filters_hidden_and_admin_entries_for_regular_user():
                     "type": "command",
                     "description": "",
                     "is_admin": False,
+                    "permission_level": "normal",
+                    "delegation_policy": "normal",
+                    "history_mode": "command",
                     "hidden": False,
                     "aliases": [],
                     "pattern": "",
                     "examples": [],
                     "sub_commands": [],
+                    "linked_plugin": None,
+                    "availability": "available",
                 }
             ],
             "priority": 0,
@@ -499,7 +687,7 @@ async def test_create_group_trims_name_and_rejects_duplicate_without_mutating_st
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     created = await service.create_group("  常用  ", description="常用目录")
@@ -525,7 +713,7 @@ async def test_add_unverified_command_keeps_directory_entry_and_returns_warning(
         save_groups=store.save,
         find_real_command=lambda _: False,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     response = await service.add_command("常用", "command", command="  查询  ")
@@ -547,7 +735,7 @@ async def test_add_regex_rejects_invalid_pattern_or_nonmatching_explicit_example
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     invalid = await service.add_command("正则", "regex", pattern="[")
@@ -580,7 +768,7 @@ async def test_command_primary_triggers_and_aliases_are_unique_inside_group():
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     response = await service.add_command("常用", "command", command="查")
@@ -601,7 +789,7 @@ async def test_regex_pattern_and_alias_cannot_reuse_the_same_trigger():
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     response = await service.add_command(
@@ -623,7 +811,7 @@ async def test_add_command_rejects_invalid_alias_container_instead_of_silently_c
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     response = await service.add_command("常用", "command", command="查询", aliases="")
@@ -660,7 +848,7 @@ async def test_update_command_distinguishes_omitted_fields_from_explicit_empty_v
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     response = await service.update_command(
@@ -680,6 +868,50 @@ async def test_update_command_distinguishes_omitted_fields_from_explicit_empty_v
     assert command.aliases == []
     assert command.examples == []
     assert command.sub_commands == []
+
+
+@pytest.mark.asyncio
+async def test_update_command_can_explicitly_clear_linked_plugin_without_overloading_empty_string():
+    """清除关联必须用专用布尔字段；省略保持原值，冲突请求明确拒绝。"""
+    from src.application.services.custom_group_service import CustomGroupService
+
+    store = InMemoryGroups([CustomGroupConfig(group_name="常用")])
+    service = CustomGroupService(
+        get_groups=lambda: store.groups,
+        set_groups=store.set_groups,
+        save_groups=store.save,
+        invalidate_command_index=lambda: None,
+        clear_runtime_cache=lambda: None,
+    )
+    created = await service.add_command(
+        "常用",
+        "command",
+        command="查询",
+        linked_plugin="weather_plugin",
+        availability="missing_plugin",
+    )
+    preserved = await service.update_command(
+        "常用", "command", "查询", description="保留关联"
+    )
+    conflict = await service.update_command(
+        "常用",
+        "command",
+        "查询",
+        linked_plugin="other_plugin",
+        clear_linked_plugin=True,
+    )
+    cleared = await service.update_command(
+        "常用", "command", "查询", clear_linked_plugin=True
+    )
+
+    assert created["success"] is True
+    assert preserved["group"]["commands"][0]["linked_plugin"] == "weather_plugin"
+    assert conflict["success"] is False
+    assert conflict["error"] == "linked_plugin_clear_conflict"
+    assert cleared["success"] is True
+    command = store.groups[0].commands[0]
+    assert command.linked_plugin is None
+    assert command.availability == "available"
 
 
 @pytest.mark.asyncio
@@ -705,7 +937,7 @@ async def test_alias_only_legacy_entries_require_unambiguous_alias_to_update():
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     updated = await service.update_command(
@@ -740,7 +972,7 @@ async def test_delete_group_token_is_single_use_and_invalid_after_content_change
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     stale_preview = await service.preview_delete_group("可删")
@@ -774,7 +1006,7 @@ async def test_delete_command_keeps_empty_group():
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     response = await service.delete_command("保留", "command", "查询")
@@ -796,7 +1028,7 @@ async def test_persistence_failure_leaves_current_memory_and_caches_untouched():
         set_groups=store.set_groups,
         save_groups=lambda _: False,
         invalidate_command_index=lambda: invalidations.append("index"),
-        clear_render_cache=lambda: invalidations.append("render"),
+        clear_runtime_cache=lambda: invalidations.append("render"),
     )
 
     response = await service.create_group("不会写入")
@@ -822,7 +1054,7 @@ async def test_invalidation_failure_is_warning_after_successful_persistence():
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=fail_index_invalidation,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     response = await service.create_group("已保存")
@@ -851,7 +1083,7 @@ async def test_update_group_renames_without_losing_commands_and_rejects_name_col
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     renamed = await service.update_group("旧名", new_group_name="  新名  ")
@@ -874,7 +1106,7 @@ async def test_delete_token_cannot_cross_service_instances_after_reload():
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
     preview = await first.preview_delete_group("可删")
     reloaded = CustomGroupService(
@@ -882,7 +1114,7 @@ async def test_delete_token_cannot_cross_service_instances_after_reload():
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     response = await reloaded.confirm_delete_group("可删", preview["delete_token"])
@@ -908,7 +1140,7 @@ async def test_concurrent_mutations_are_serialized_before_duplicate_check_and_sa
         set_groups=store.set_groups,
         save_groups=slow_save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     first, second = await asyncio.gather(
@@ -938,7 +1170,7 @@ async def test_write_inputs_reject_invalid_scalar_and_list_types_before_persiste
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: invalidations.append("index"),
-        clear_render_cache=lambda: invalidations.append("render"),
+        clear_runtime_cache=lambda: invalidations.append("render"),
     )
 
     invalid_priority = await service.create_group("错误优先级", priority="high")
@@ -987,7 +1219,7 @@ async def test_normal_command_trigger_equivalence_ignores_slash_and_case():
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
         command_prefixes=lambda: ["/", "!"],
     )
 
@@ -1016,7 +1248,7 @@ async def test_regex_examples_follow_runtime_ignorecase_matching():
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     response = await service.add_command(
@@ -1049,7 +1281,7 @@ async def test_delete_preview_keeps_only_latest_token_and_mutations_clear_it():
         set_groups=store.set_groups,
         save_groups=store.save,
         invalidate_command_index=lambda: None,
-        clear_render_cache=lambda: None,
+        clear_runtime_cache=lambda: None,
     )
 
     first = await service.preview_delete_group("可删")

@@ -94,7 +94,6 @@ class MockDataFactory:
     def create_config(
         enable_ai_command_notify: bool = True,
         enable_ai_self_command: bool = False,
-        ignored_plugins: list[str] | None = None,
         custom_groups: list[dict] | None = None,
     ) -> dict:
         """创建插件配置."""
@@ -103,17 +102,8 @@ class MockDataFactory:
             "enable_ai_command_result": True,
             "enable_ai_self_command": enable_ai_self_command,
             "ai_command_blacklist": ["admin_plugin"],
-            "ignored_plugins": ignored_plugins or [],
             "regex": {"max_examples": 10},
             "custom_groups": custom_groups or [],
-            "rendering": {
-                "use_t2i": False,
-                "html_theme": "simple",
-                "jpeg_quality": 95,
-                "timeout_analysis": 10.0,
-                "max_concurrent_tasks": 2,
-                "giant_threshold": 1500,
-            },
         }
 
     @staticmethod

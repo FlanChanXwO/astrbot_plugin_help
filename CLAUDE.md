@@ -10,7 +10,7 @@
 
 - **语言**: Python 3.10+
 - **框架**: AstrBot plugin system
-- **插件职责**: 可视化帮助菜单渲染、命令搜索（jieba 分词 + 多维评分）、AI 命令发现/结果监听与自定义命令目录管理
+- **插件职责**: 命令目录、AI 搜索/委托执行、身份解析、回执去重、偏好和自定义目录管理
 - **许可证**: AGPL
 
 主要目录：
@@ -19,11 +19,11 @@
 main.py                         插件入口（HelpPlugin Star 子类），注册命令/LLM tool/Web API
 _conf_schema.json               配置 schema
 src/application/services/       HelpService 编排用例
-src/infrastructure/analysis/    CommandIndex、CommandAnalyzer、CommandExecutor
-src/infrastructure/rendering/   HTMLHelpRenderer、HTMLTemplateManager、CacheManager
-src/infrastructure/config/      ConfigManager 配置与自定义命令组持久化
-src/domain/entities/            CommandEntry、RenderNode、PluginCommandSummary
-templates/simple/               Jinja2 帮助模板与 CSS
+src/infrastructure/analysis/    CommandIndex、CommandExecutor
+src/infrastructure/storage/     SQLite catalog 与旧 JSON 迁移
+src/infrastructure/config/      类型安全配置
+pages/dashboard/                WebUI 命令目录管理
+skills/                         插件内置 Agent Skill
 tests/                          测试入口，conftest.py 含 mock 注入
 ```
 
@@ -37,7 +37,7 @@ tests/                          测试入口，conftest.py 含 mock 注入
 
 ## 硬约束
 
-- `main.py` 只负责插件入口、生命周期和编排；复杂索引、渲染组装和命令执行逻辑放在 `src/` 对应模块。
+- `main.py` 只负责插件入口、生命周期和薄编排；复杂目录、身份、历史和命令执行逻辑放在 `src/`。
 - 不要在插件目录创建或依赖 `<plugin>/data` 作为运行态目录；插件数据目录使用 AstrBot 提供的 `StarTools.get_data_dir()`。
 - 黑名单检查必须跳过通用处理器（`on_message` 等），因为通用处理器匹配几乎所有消息，不代表命令属于黑名单插件。
 - 递归调用 `execute_astrbot_command` 被阻止。
@@ -50,7 +50,7 @@ tests/                          测试入口，conftest.py 含 mock 注入
 ## 文档纪律
 
 - 文档是改动的一部分。代码改动导致现有说明失真时，必须在同一 patch 中更新相关 `docs/`。
-- 命令行为、配置项、黑名单规则、渲染模板、安全边界、测试或 lint 流程变化时，通常需要更新文档。
+- 命令行为、配置、SQLite、WebUI、安全边界或测试/lint 流程变化时更新文档。
 - repo-wide 约束或 agent 入口说明变化时，同步更新 `AGENTS.md` 和 `CLAUDE.md`。
 
 ## 测试与检查命令
@@ -58,11 +58,11 @@ tests/                          测试入口，conftest.py 含 mock 注入
 从插件目录运行：
 
 ```bash
-ruff check main.py src tests       # lint
-ruff format --check main.py src tests  # 格式检查
-python3 -m compileall main.py src tests  # 语法检查
+ruff check main.py src tests scripts       # lint
+ruff format --check main.py src tests scripts  # 格式检查
+python3 -m compileall main.py src tests scripts  # 语法检查
 pytest tests/ -v                   # pytest
-python tests/run_tests.py -v       # 正则示例测试
+python3 tests/run_tests.py -v       # 正则示例测试
 ```
 
 本地集成验证通常需要运行上层 AstrBot 入口：
@@ -74,7 +74,7 @@ python main.py
 
 ## 维护
 
-当架构、命令索引、黑名单规则、AI tool 语义、渲染流程或测试/lint 流程变化时，同步更新 `AGENTS.md` 和 `CLAUDE.md`。
+当架构、命令目录、AI tool、SQLite 或测试/lint 流程变化时，同步更新 `AGENTS.md` 和 `CLAUDE.md`。
 
 ## 篇幅约束
 

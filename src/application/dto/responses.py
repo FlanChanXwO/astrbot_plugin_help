@@ -157,21 +157,6 @@ class ExecuteCommandResponse:
 
 
 @dataclass
-class ListPluginsResponse:
-    """列出插件响应"""
-
-    success: bool
-    plugin_count: int = 0
-    command_prefix: list[str] = field(default_factory=list)
-    plugins: list[dict] = field(default_factory=list)
-    error: str | None = None
-
-    def to_json(self) -> str:
-        """转换为 JSON 字符串"""
-        return json.dumps(self.__dict__, ensure_ascii=False, indent=2)
-
-
-@dataclass
 class ListCustomGroupsResponse:
     """列出自定义分组响应"""
 

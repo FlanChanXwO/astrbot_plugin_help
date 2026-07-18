@@ -1,194 +1,86 @@
-# Help Plugin for AstrBot
+# AstrBot 智能命令代理
 
-<div align="center">
+`astrbot_plugin_helpinfo` v2 是轻量化的 AI 命令目录、身份解析与委托执行插件。v2 已移除图片帮助菜单，不再依赖浏览器或 T2I 渲染。
 
-**AstrBot 帮助菜单插件。**
+## 能力
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-![Python Version](https://img.shields.io/badge/Python-3.10%2B-blue)
-![AstrBot](https://img.shields.io/badge/AstrBot-%E2%89%A54.10.4-green)
-![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+- 从 AstrBot registry 同步运行时命令，插件加载/卸载时增量更新目录。
+- 使用 SQLite `command_catalog.db` 保存自定义目录、权限/委托/历史策略、身份映射、回执和偏好。
+- Agent 可搜索并执行命令，也可理解昵称、@、引用、个人别名和会话限定 `target_ref`。
+- 3 秒默认监听快速结果；长任务返回 `accepted`，外部路由返回 `external_dispatched`，60 秒内重复调用返回 `duplicate_suppressed`。
+- WebUI 和 8 个目录 LLM tools 共用完整分组/条目 CRUD；整组删除必须 preview→confirm。
+- 记录目标用户近期/常用命令偏好；默认只记录命令标识，不保存参数。
 
-</div>
+## 安装
 
----
-
-## ✨ 功能特性
-
-- 🖼️ **可视化帮助菜单** — 将命令列表渲染为精美的 JPEG 图片，支持 3 列瀑布流布局
-- 🔍 **智能命令搜索** — 基于 jieba 中文分词的多维度模糊搜索，支持拼音、别名匹配
-- 🤖 **AI 命令工具** — 提供命令发现、执行结果监听，以及 8 项自定义命令目录管理工具
-- 📂 **自定义命令组** — 可通过 WebUI 或 AI 创建虚拟命令组，将已有命令聚合为分组菜单
-- 🏷️ **正则命令支持** — 自动识别 RegexFilter 触发器，生成示例文本并正确渲染
-- ⚙️ **灵活配置** — 插件黑名单、AI 调用黑名单、渲染引擎选项等丰富的配置项
-- 🎨 **双渲染引擎** — 支持 Playwright（本地高质量）或 AstrBot 内置 t2i 服务
-- 🧪 **完整测试覆盖** — 40+ 单元测试覆盖核心逻辑
-
----
-
-## 📦 安装
-
-### 方式一：通过 AstrBot 插件市场安装（推荐）
-
-在 AstrBot 管理面板中搜索 `Help` 并安装。
-
-### 方式二：手动安装
-
-1. 克隆本仓库到 AstrBot 的插件目录：
-   ```bash
-   cd AstrBot/data/plugins
-   git clone https://github.com/FlanChanXwO/astrbot_plugin_helpinfo.git
-   ```
-
-2. 安装依赖：
-   ```bash
-   cd astrbot_plugin_helpinfo
-   pip install -r requirements.txt
-   ```
-
-3. 重启 AstrBot 或重载插件
-
----
-
-## 🛠️ 配置项
-
-在 AstrBot 管理面板的「配置」页面，找到 `Help` 插件配置：
-
-### AI 命令配置
-
-| 配置项 | 类型 | 说明 | 默认值 |
-|--------|------|------|--------|
-| `enable_ai_command_notify` | 布尔值 | AI 执行命令前发送通知 | `true` |
-| `enable_ai_command_result` | 布尔值 | AI 命令调度成功/失败发送提示；命令最终输出由后台命令自己发送 | `true` |
-| `enable_ai_self_command` | 布尔值 | 允许 AI 使用 `actor=self` 以机器人自身 `self_id` 执行命令，权限仍由 AstrBot 正常判断 | `false` |
-| `ai_command_auto_wait_seconds` | 数值 | `execute_astrbot_command` 的 `auto` 模式监听窗口；窗口结束不取消后台命令 | `3` |
-| `ai_command_max_wait_seconds` | 数值 | `custom` 模式允许的最长单次监听时间 | `60` |
-| `ai_command_blacklist` | 列表 | 禁止 AI 调用的插件列表 | 见配置说明 |
-
-### 黑名单配置
-
-| 配置项 | 类型 | 说明 | 默认值 |
-|--------|------|------|--------|
-| `ignored_plugins` | 列表 | 不展示在帮助菜单中的插件 ID | 见配置说明 |
-
-### 正则触发器配置 (`regex`)
-
-| 配置项 | 类型 | 说明 | 默认值 |
-|--------|------|------|--------|
-| `regex.max_examples` | 整数 | 每条正则命令最多生成的示例数 | `10` |
-
-### 渲染引擎配置 (`rendering`)
-
-| 配置项 | 类型 | 说明 | 默认值 |
-|--------|------|------|--------|
-| `rendering.use_t2i` | 布尔值 | 使用 AstrBot 内置 t2i 渲染（无需 Playwright） | `false` |
-| `rendering.html_theme` | 字符串 | HTML 主题名称，目前仅 `simple` | `simple` |
-| `rendering.jpeg_quality` | 整数 | JPEG 图片质量 (50-100) | `95` |
-| `rendering.timeout_analysis` | 浮点数 | 数据结构分析超时（秒） | `10.0` |
-| `rendering.max_concurrent_tasks` | 整数 | 最大并发渲染数 | `2` |
-| `rendering.giant_threshold` | 整数 | 巨型块阈值 (pt)，超过则独占一行 | `1500` |
-
----
-
-## 📝 使用方法
-
-### 基础命令
-
-| 命令 | 中文别名 | 说明 |
-|------|---------|------|
-| `/helps [关键词]` | `/帮助` | 显示帮助菜单图片；支持关键词搜索 |
-| `/help_refresh` | `/刷新帮助缓存` | 刷新命令缓存（需管理员权限） |
-
-**`/helps` 使用示例：**
-
-| 命令 | 说明 |
-|------|------|
-| `/helps` | 显示完整帮助菜单 |
-| `/helps sub` | 搜索包含 "sub" 的命令 |
-| `/helps 订阅` | 中文关键词搜索 |
-
-### 命令菜单结构
-
-帮助菜单按以下规则组织：
-
-1. **插件卡片** — 每个插件独立成卡，显示版本和描述
-2. **命令分组** — 原生 `CommandGroupFilter` 分组和自定义命令组均显示为 📂 分组
-3. **排序规则** — 普通命令 → 正则命令 → 分组命令，同类型按名称排序
-4. **标签显示** — 管理命令标红、正则命令标橙、事件命令标黄
-5. **别名展示** — 命令和分组均显示别名，超过 5 个显示 `+N`
-
----
-
-## 🤖 LLM 工具
-
-本插件为 AI 提供以下工具函数：
-
-- `search_astrbot_command` — 搜索 AstrBot 命令，支持模糊匹配和权限过滤
-- `execute_astrbot_command` — 执行 AstrBot 命令，支持普通命令和正则触发命令，并监听本次 synthetic event 的结果；工具以显式 JSON Schema 注册 `command`，其为必填字段且应传完整命令文本，即使目标命令本身不接受额外参数
-- 自定义目录管理（8 个工具）— `list_custom_groups`、`create_custom_group`、`update_custom_group`、`preview_delete_custom_group`、`confirm_delete_custom_group`、`add_custom_group_command`、`update_custom_group_command`、`delete_custom_group_command`
-
-在 AstrBot 的 LLM 配置中开启工具调用即可使用。
-
-**AI 工具特性：**
-- 自动检测用户权限（管理员可查看所有命令，普通用户仅查看普通命令）
-- `execute_astrbot_command` 的 `auto` 模式默认监听 3 秒：快速命令向 AI 返回完整可归因文本；仍在执行的长耗时命令返回运行中且继续在后台发送结果。也可选 `background` 立即返回，或以不超过 60 秒的 `custom` 等待。
-- `actor=self` 默认禁用；显式开启 `enable_ai_self_command` 后，命令发送者改为机器人 `self_id`，但不会自动提权
-- 正则命令自动派生示例文本执行，确保 `RegexFilter` 能正确匹配
-- 自定义命令组命令只匹配通用处理器且未捕获本地输出时，会返回 `external_dispatched`：表示路由器已受理，外部 Bot 框架会异步回复当前聊天，AI 不应重复调用
-- 黑名单插件自动拦截，防止 AI 调用敏感命令
-- 自定义目录工具仅管理员可写；整组删除必须预览再确认，单条目录按精确触发式删除。目录只描述已有命令，不会创建 handler。
-
----
-
-## 🏗️ 项目架构
-
-本项目采用 **分层架构**，受 DDD 设计影响：
-
-```
-src/
-├── domain/           # 领域层 - 核心业务实体
-│   ├── entities/     # 实体 (CommandEntry, RenderNode, PluginCommandSummary)
-│   ├── value_objects/# 值对象
-│   └── exceptions.py # 领域异常
-├── application/      # 应用层 - 用例编排
-│   ├── dto/          # 数据传输对象
-│   └── services/     # 应用服务 (HelpService, CustomGroupService)
-└── infrastructure/   # 基础设施层 - 技术实现
-    ├── analysis/     # 命令分析 (CommandIndex, CommandAnalyzer, CommandExecutor)
-    ├── config/       # 配置管理 (ConfigManager)
-    ├── persistence/  # 数据持久化 (CacheManager)
-    ├── rendering/    # 图片渲染 (HTMLHelpRenderer, TemplateManager)
-    └── utils/        # 工具函数
+```bash
+cd AstrBot/data/plugins
+git clone https://github.com/FlanChanXwO/astrbot_plugin_helpinfo.git
+cd astrbot_plugin_helpinfo
+pip install -r requirements.txt
 ```
 
-### 关键设计原则
+重启 AstrBot 或重载插件。运行态数据始终位于 `StarTools.get_data_dir()` 返回的目录，不写入插件仓库。
 
-1. **单例模式** — 核心组件均为模块级单例，通过 `get_*()` 访问，测试通过 `reset_*()` 重置
-2. **依赖注入** — `init_plugin_service()` 按依赖顺序引导所有单例
-3. **缓存策略** — 命令索引持久化到 JSON，按已激活 Star 数量自动失效
-4. **类型安全** — 全面使用 Python 类型注解
+## 聊天入口
 
----
+- `/ai_command_privacy status|allow|deny_sensitive|deny_all`
+- 管理员：`/ai_command_privacy set <目标> <allow|deny_sensitive|deny_all>`
+- `/ai_command_alias list|set|delete|clear`
+- `/ai_command_history clear [目标]`：本人清除自己的明细与聚合；指定目标仅管理员。
 
-## 🌐 WebUI（自定义命令组）
+v2 删除了 `/helps`、`/help_refresh` 及其中文别名。命令发现改用 LLM tools 或 WebUI 分页目录。
 
-通过 AstrBot 管理面板的「页面」入口访问：
+## LLM tools
 
-- **创建分组** — 将任意命令聚合为虚拟插件分组
-- **支持类型** — 普通命令（`command`）和正则命令（`regex`）
-- **别名管理** — 为分组和命令设置别名
-- **权限控制** — 支持标记管理命令
-- **隐藏命令** — 可将命令标记为隐藏，不出现在帮助菜单中
-- **AI 管理** — AI 可管理同一份目录数据；普通用户读取时不会看到隐藏或管理员条目
+核心 tools：
 
-WebUI 数据持久化到 `data/plugin_data/astrbot_plugin_help/data/custom_groups.json`。
+- `search_astrbot_command(keyword, permission_filter, target_user, preference_mode)`
+- `execute_astrbot_command(command, actor, result_mode, wait_seconds, target_user)`
+- `resolve_astrbot_user(reference)`
+- `set_astrbot_user_alias`、`list_astrbot_user_aliases`、`delete_astrbot_user_alias`
+- 自定义目录 8 项 CRUD tools
 
----
+`execute_astrbot_command.command` 必填，即使目标命令无额外参数也要传完整触发文本。`accepted`、`external_dispatched` 和 `duplicate_suppressed` 都表示不得重复调度；只有 `retryable=true` 的 `failed` 才可重试。若 handler 已调度后才失败，回执保持 `failed`，但会返回 `dispatched=true`、`retryable=false` 并参与 60 秒重复抑制。插件内置 Agent 指南见 [`skills/astrbot-command-assistant/SKILL.md`](skills/astrbot-command-assistant/SKILL.md)。
 
-## 📄 开源协议
+## 配置
 
-本项目基于 [MIT](LICENSE) 协议开源。
+| 字段 | 默认值 | 说明 |
+| --- | --- | --- |
+| `enable_ai_command_notify` | `true` | 调度前通知当前聊天 |
+| `enable_ai_command_result` | `true` | 返回调度状态提示 |
+| `enable_ai_self_command` | `false` | 允许 `actor=self`，不自动提权 |
+| `ai_command_auto_wait_seconds` | `3` | `auto` 监听窗口，不取消长任务 |
+| `ai_command_max_wait_seconds` | `60` | `custom` 最大监听窗口 |
+| `enable_sensitive_delegation` | `false` | 全局允许管理员执行敏感委托 |
+| `allow_admin_target_override` | `false` | 管理员绕过目标隐私设置 |
+| `ai_command_dedupe_window_seconds` | `60` | 重复调度抑制窗口 |
+| `command_history_retention_days` | `90` | 历史明细和观察身份保留期 |
+| `ai_command_blacklist` | 见 schema | 禁止 AI 调用的插件前缀 |
+| `regex.max_examples` | `10` | 正则命令示例生成数量 |
 
-## 致谢
+完整语义见 [`docs/project/configuration.md`](docs/project/configuration.md)。
 
-- [AstrBot](https://github.com/AstrBotDevs/AstrBot)
+## 数据迁移
+
+启动时会检测旧 `custom_groups.json`，先生成字节级备份，再在事务中严格导入 SQLite；校验失败整批回滚，不跳过坏条目。每个数据库只接受一次旧目录导入：已有 `legacy_imports` 记录后，自动迁移和正式 CLI 都不会因来源或校验和变化而再次导入。dry-run 可验证新来源；正式导入必须使用新建或尚未迁移的数据库：
+
+```bash
+python scripts/migrate_custom_groups.py --source /path/custom_groups.json --database /path/command_catalog.db --dry-run
+python scripts/migrate_custom_groups.py --source /path/custom_groups.json --database /path/command_catalog.db
+```
+
+详细说明见 [`MIGRATION_SUMMARY.md`](MIGRATION_SUMMARY.md)。
+
+## 开发
+
+```bash
+ruff check main.py src tests scripts
+ruff format --check main.py src tests scripts
+python3 -m compileall main.py src tests scripts
+pytest tests/ -v
+python3 tests/run_tests.py -v
+pre-commit run --all-files
+```
+
+架构、测试和维护规则位于 [`docs/`](docs/README.md)。项目采用 [MIT](LICENSE) 许可证。

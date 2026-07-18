@@ -2,14 +2,11 @@
 
 from .logger import get_logger, logger
 from .paths import (
-    clear_cache_dir,
     get_cache_dir,
     get_custom_groups_path,
     get_data_dir,
     get_plugin_data_dir,
     get_plugin_dir,
-    get_resources_dir,
-    get_templates_dir,
     init_plugin_paths,
 )
 from .text import (
@@ -29,9 +26,6 @@ __all__ = [
     "get_cache_dir",
     "get_plugin_data_dir",
     "get_custom_groups_path",
-    "clear_cache_dir",
-    "get_templates_dir",
-    "get_resources_dir",
     # Text
     "looks_like_regex",
     "normalize_detail_query",

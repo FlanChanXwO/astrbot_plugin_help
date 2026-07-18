@@ -5,40 +5,37 @@ Coordinates all infrastructure to complete business use cases.
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
 import json
 from pathlib import Path
 
 from astrbot.api import AstrBotConfig
 from astrbot.api.event import AstrMessageEvent
-from astrbot.api.message_components import Image
 from astrbot.core import sp
 
 from ...infrastructure import (
-    clear_cache_dir,
-    get_cache_dir,
-    get_cache_manager,
-    get_command_analyzer,
     get_command_executor,
     get_command_index,
     get_context,
-    get_event_analyzer,
-    get_filter_analyzer,
-    get_html_renderer,
     get_logger,
+    get_data_dir,
     init_plugin_paths,
-    invalidate_command_cache,
     replace_prefix,
+    reset_command_executor,
+    reset_command_index,
     set_context,
 )
-from ...infrastructure.config import get_config, init_config, refresh_config
-from ...infrastructure.persistence.cache_manager import get_custom_groups_cache_material
-from .custom_group_service import reset_custom_group_service
+from ...infrastructure.config import (
+    CustomGroupConfig,
+    get_config,
+    init_config,
+    refresh_config,
+)
+from .custom_group_service import bind_custom_group_catalog, reset_custom_group_service
+from .command_runtime_service import CommandRuntimeService
+from .delegated_command_service import DelegatedCommandService
 from ..dto import (
     CommandDetailResponse,
     ListCustomGroupsResponse,
-    ListPluginsResponse,
     SearchCommandResponse,
 )
 
@@ -51,81 +48,45 @@ class HelpService:
     def __init__(self):
         self.config = get_config()
         self.context = get_context()
-        self.command_analyzer = get_command_analyzer()
-        self.event_analyzer = get_event_analyzer()
-        self.filter_analyzer = get_filter_analyzer()
-        self.renderer = get_html_renderer()
-        self.cache = get_cache_manager()
         self.command_index = get_command_index()
         self.command_executor = get_command_executor()
+        self.command_runtime = CommandRuntimeService(
+            data_dir=get_data_dir(),
+            config=self.config,
+            context=self.context,
+            command_index=self.command_index,
+            command_executor=self.command_executor,
+        )
+        self.delegated_command_service = DelegatedCommandService(
+            runtime=self.command_runtime,
+            command_executor=self.command_executor,
+            command_index=self.command_index,
+            config_getter=lambda: self.config,
+            prefixes_getter=lambda: self.prefixes,
+            resolve_target=self._resolve_target,
+            resolve_allowed_plugins=self._resolve_allowed_plugins,
+            is_command_invokable=self._is_command_invokable,
+        )
 
         self.prefixes: list[str] = ["/"]
-        self.cache_dir = get_cache_dir()
-
-        # Internal state
-        self._last_error: str | None = None
-        self._cache_warmup_task: asyncio.Task[None] | None = (
-            None  # Track background task for clean shutdown
-        )
 
     async def initialize(self):
         """Initialize service"""
+        self.command_runtime.initialize()
+        bind_custom_group_catalog(self.command_runtime.catalog)
+        self.config.custom_groups = [
+            CustomGroupConfig.model_validate(group)
+            for group in self.command_runtime.catalog.list_custom_groups()
+        ]
+        self.command_index.update_config()
         self._init_prefixes()
-
-        # Warm up cache: build command index JSON without rendering images
-        # Images will be lazily generated on first help menu request
-        # Use background task to avoid blocking plugin initialization
-
-        # Cancel existing warm-up task if still running (prevent concurrent tasks)
-        if self._cache_warmup_task and not self._cache_warmup_task.done():
-            logger.debug(
-                "Cancelling previous cache warm-up task before starting new one..."
-            )
-            self._cache_warmup_task.cancel()
-            try:
-                await asyncio.shield(self._cache_warmup_task)
-            except asyncio.CancelledError:
-                logger.debug("Previous cache warm-up task cancelled")
-
-        async def _warm_up_cache():
-            try:
-                logger.debug("Building command index cache...")
-                self.command_index.get_all_commands()
-                logger.debug("Command index cache initialized successfully")
-            except asyncio.CancelledError:
-                # Re-raise cancellation to ensure plugin shutdown is not blocked
-                logger.debug("Cache warm-up cancelled during initialization")
-                raise
-            except Exception:
-                # Log other exceptions but don't fail initialization
-                logger.exception(
-                    "Failed to build command index cache during initialization"
-                )
-
-        # Start cache warm-up in background without blocking initialization
-        # Store task reference for clean shutdown in terminate()
-        self._cache_warmup_task = asyncio.create_task(_warm_up_cache())
 
         logger.info("Initialization completed")
 
     async def terminate(self):
         """Terminate service"""
-        try:
-            # Cancel background cache warm-up task if still running
-            if self._cache_warmup_task and not self._cache_warmup_task.done():
-                logger.debug("Cancelling cache warm-up task during shutdown...")
-                self._cache_warmup_task.cancel()
-                try:
-                    await asyncio.shield(self._cache_warmup_task)
-                except asyncio.CancelledError:
-                    logger.debug("Cache warm-up task cancelled successfully")
-        except Exception as exc:
-            logger.warning(f"Failed to cancel cache warm-up task: {exc}")
-
-        try:
-            await self.renderer.close()
-        except Exception as exc:
-            logger.warning(f"Failed to close HTML renderer: {exc}")
+        await self.command_executor.shutdown()
+        self.command_runtime.terminate()
 
     def _init_prefixes(self):
         """Initialize command prefixes"""
@@ -149,7 +110,8 @@ class HelpService:
         self.config = get_config()
         self.command_index.update_config()
         self.command_executor.cfg = get_config()
-        self.renderer.set_theme(self.config.rendering.html_theme)
+        if hasattr(self, "command_runtime"):
+            self.command_runtime.reconfigure(self.config)
 
     async def _get_session_disabled_plugins(self, event: AstrMessageEvent) -> set[str]:
         """Get session disabled plugins"""
@@ -215,111 +177,6 @@ class HelpService:
             plugin_name.startswith(bl) or plugin_name == bl
             for bl in self.config.ai_command_blacklist
         )
-
-    def _get_cache_key(self, mode: str, query: str | None, is_admin: bool) -> str:
-        """Generate cache key"""
-        try:
-            all_stars = self.context.get_all_stars()
-            plugin_names = sorted(
-                [
-                    getattr(star, "name", "")
-                    for star in all_stars
-                    if getattr(star, "activated", False)
-                ]
-            )
-        except Exception:
-            plugin_names = []
-
-        # Include custom command descriptions in cache key to invalidate on description changes
-        custom_commands_data = []
-        for group in sorted(self.config.custom_groups, key=lambda g: g.group_name):
-            for cmd in sorted(group.commands, key=lambda c: c.command or c.pattern):
-                custom_commands_data.append(
-                    {
-                        "group": group.group_name,
-                        "command": cmd.command
-                        if cmd.type == "command"
-                        else cmd.pattern,
-                        "description": cmd.description,
-                    }
-                )
-
-        cache_data = {
-            "plugins": plugin_names,
-            "mode": mode,
-            "query": query,
-            "is_admin": is_admin,
-            "html_theme": self.config.rendering.html_theme,
-            "use_t2i": self.config.rendering.use_t2i,
-            "custom_groups": get_custom_groups_cache_material(
-                self.config.custom_groups
-            ),
-            "custom_commands": custom_commands_data,
-        }
-
-        cache_str = json.dumps(cache_data, sort_keys=True, ensure_ascii=False)
-        return hashlib.md5(cache_str.encode()).hexdigest()
-
-    async def _cleanup_temp_files(self):
-        """Clean up temporary files"""
-        try:
-            temp_files = list(self.cache_dir.glob("temp_*"))
-            if not temp_files:
-                return
-            for file_path in temp_files:
-                try:
-                    if file_path.exists():
-                        file_path.unlink()
-                except OSError:
-                    pass
-        except Exception as exc:
-            logger.warning(f"Cleanup failed: {exc}")
-
-    async def _render_with_html(
-        self,
-        analyzer,
-        title: str,
-        query: str | None,
-        allowed_plugins: set[str] | None,
-        cache_key: str | None,
-    ) -> str | None:
-        """Render help image using HTML renderer"""
-        try:
-            # Get plugin data
-            plugins = analyzer.get_plugins(query, allowed_plugins=allowed_plugins)
-            if not plugins:
-                self._last_error = "empty"
-                return None
-
-            # Prepare output path
-            display_title = f'Search results: "{query}"' if query else title
-            output_filename = (
-                f"help_{cache_key}.jpg"
-                if cache_key
-                else f"help_search_{hash(query)}.jpg"
-            )
-            output_path = self.cache_dir / output_filename
-
-            # Render
-            image_paths = await self.renderer.render(
-                plugins=[p.to_dict() for p in plugins],
-                output_path=output_path,
-                title=display_title,
-                prefixes=self.prefixes,
-            )
-
-            if image_paths and image_paths[0]:
-                if cache_key:
-                    await self.cache.set_cached_image(cache_key, image_paths[0])
-                return image_paths[0]
-
-            self._last_error = "Rendering did not generate image"
-            return None
-
-        except Exception as exc:
-            logger.error(f"HTML rendering failed: {exc}", exc_info=True)
-            self._last_error = f"HTML rendering failed: {exc}"
-            return None
 
     def _format_search_results_by_plugin(self, results: list[dict]) -> dict:
         """Format search results grouped by plugin"""
@@ -499,8 +356,10 @@ class HelpService:
             result["custom_groups"] = list(item.get("custom_groups", []))
         return result
 
-    def _find_matching_custom_groups(self, keyword: str) -> list:
-        """Find matching custom groups"""
+    def _find_matching_custom_groups(
+        self, keyword: str, *, is_admin: bool
+    ) -> list[CustomGroupConfig]:
+        """按原请求者权限返回可安全用于 fallback/note 的目录副本。"""
         if not self.config.custom_groups:
             return []
 
@@ -508,81 +367,188 @@ class HelpService:
         matched = []
 
         for group in self.config.custom_groups:
+            if group.hidden and not is_admin:
+                continue
+            visible_commands = [
+                command
+                for command in group.commands
+                if is_admin
+                or (not command.hidden and command.permission_level != "admin")
+            ]
+            public_group = group.model_copy(
+                deep=True, update={"commands": visible_commands}
+            )
             if keyword_lower in group.group_name.lower():
-                matched.append(group)
+                matched.append(public_group)
                 continue
 
-            if group.commands:
-                for cmd in group.commands:
+            if visible_commands:
+                for cmd in visible_commands:
                     if (
                         cmd.type == "command"
                         and keyword_lower in cmd.command.lower().lstrip("/")
                     ):
-                        matched.append(group)
+                        matched.append(public_group)
                         break
                     if (
                         cmd.type == "regex"
                         and cmd.pattern
                         and keyword_lower in cmd.pattern.lower()
                     ):
-                        matched.append(group)
+                        matched.append(public_group)
                         break
 
         return matched
 
-    async def show_help(
-        self, event: AstrMessageEvent, query: str = "", is_admin: bool = False
-    ):
-        """Display help menu"""
-
-        allowed_plugins = await self._resolve_allowed_plugins(event)
-        cache_key = self._get_cache_key("command", query, is_admin)
-
-        # Check cache
-        if not query:
-            cached_image = await self.cache.get_cached_image(cache_key)
-            if cached_image:
-                yield event.chain_result([Image.fromFileSystem(cached_image)])
-                return
-
-        # HTML render
-        result = await self._render_with_html(
-            analyzer=self.command_analyzer,
-            title="Astrbot 指令帮助",
-            query=query,
-            allowed_plugins=allowed_plugins,
-            cache_key=cache_key if not query else None,
+    async def _resolve_target(
+        self, event: AstrMessageEvent, target_user: str = ""
+    ) -> tuple[dict[str, object], str | None]:
+        """解析目标并仅在后端取回 UID；LLM 结果继续使用 opaque ref。"""
+        requester_id = str(event.get_sender_id())
+        if not target_user.strip():
+            return (
+                {
+                    "status": "resolved",
+                    "display_name": event.get_sender_name() or requester_id,
+                    "source": "requester",
+                    "identity_freshness": "event",
+                    "operable": True,
+                },
+                requester_id,
+            )
+        resolution = await self.command_runtime.identity_service.resolve(
+            event, target_user, requester_id=requester_id
         )
+        if resolution.get("status") != "resolved":
+            return resolution, None
+        target_id = self.command_runtime.catalog.find_identity_reference(
+            platform_id=str(event.get_platform_id()),
+            session_id=str(event.unified_msg_origin),
+            target_ref=str(resolution["target_ref"]),
+        )
+        if target_id is None:
+            return {"status": "error", "error": "目标引用已失效"}, None
+        return resolution, target_id
 
-        if result:
-            yield event.chain_result([Image.fromFileSystem(result)])
-        elif result is None and not query:
-            yield event.plain_result("Rendering failed, please try again later")
-        elif self._last_error:
-            yield event.plain_result(self._last_error)
-        else:
-            yield event.plain_result(f"No commands found matching '{query}'")
+    async def resolve_user(self, event: AstrMessageEvent, reference: str) -> str:
+        """解析自然语言、@、引用、UID 或个人别名。"""
+        result = await self.command_runtime.identity_service.resolve(
+            event, reference, requester_id=str(event.get_sender_id())
+        )
+        return json.dumps(result, ensure_ascii=False)
 
-    async def refresh_cache(self) -> str:
-        """Refresh help cache"""
-        self.sync_config()
-        self.command_index.reset_cache()
-        await self.cache.clear_cache()
-        return "Help cache has been refreshed."
+    async def set_user_alias(
+        self, event: AstrMessageEvent, alias: str, target_user: str
+    ) -> str:
+        try:
+            result = await self.command_runtime.identity_service.set_alias(
+                event,
+                requester_id=str(event.get_sender_id()),
+                alias=alias,
+                target_reference=target_user,
+            )
+            return json.dumps({"success": True, "target": result}, ensure_ascii=False)
+        except Exception as error:
+            return json.dumps(
+                {"success": False, "error": str(error)}, ensure_ascii=False
+            )
+
+    def list_user_aliases(self, event: AstrMessageEvent) -> str:
+        result = self.command_runtime.identity_service.list_aliases(
+            event, requester_id=str(event.get_sender_id())
+        )
+        return json.dumps({"success": True, "aliases": result}, ensure_ascii=False)
+
+    def delete_user_alias(self, event: AstrMessageEvent, alias: str) -> str:
+        deleted = self.command_runtime.identity_service.delete_alias(
+            event, requester_id=str(event.get_sender_id()), alias=alias
+        )
+        return json.dumps({"success": deleted, "deleted": deleted}, ensure_ascii=False)
 
     async def search_command(
-        self, event: AstrMessageEvent, keyword: str, permission_filter: str = "all"
+        self,
+        event: AstrMessageEvent,
+        keyword: str,
+        permission_filter: str = "auto",
+        target_user: str = "",
+        preference_mode: str = "auto",
     ) -> str:
         """Search for commands or get detailed command information.
 
         Smart behavior:
-        - If keyword is empty: returns all available plugins and their commands
+        - If keyword is empty: returns the current user's recent or frequent commands
         - If multiple matches: returns a list of matching commands grouped by plugin
         - If single exact match: returns detailed information for that command
         """
-        # If keyword is empty, return all commands
+        is_admin = bool(event.is_admin())
+        if permission_filter == "auto":
+            permission_filter = "all" if is_admin else "normal"
+        if permission_filter not in {"normal", "admin", "all"}:
+            return json.dumps(
+                {"success": False, "error": "invalid_permission_filter"},
+                ensure_ascii=False,
+            )
+        if not is_admin and permission_filter != "normal":
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": "permission_filter_exceeds_requester",
+                    "message": "普通请求者只能搜索普通权限命令",
+                },
+                ensure_ascii=False,
+            )
+        if preference_mode not in {"auto", "recent", "frequent", "off"}:
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": "preference_mode 仅支持 auto、recent、frequent、off",
+                },
+                ensure_ascii=False,
+            )
+        target, target_id = await self._resolve_target(event, target_user)
+        if target_id is None:
+            return json.dumps(
+                {"success": False, "identity": target}, ensure_ascii=False
+            )
+        requester_id = str(event.get_sender_id())
+        platform_id = str(event.get_platform_id())
         if not keyword or not keyword.strip():
-            return await self.list_all_plugins_and_commands(event)
+            if target_id != requester_id and not is_admin:
+                return json.dumps(
+                    {"success": False, "error": "空关键词不能查询其他用户的偏好"},
+                    ensure_ascii=False,
+                )
+            if preference_mode == "off":
+                return json.dumps(
+                    {
+                        "success": False,
+                        "error": "空关键词需要 recent、frequent 或 auto 偏好模式",
+                    },
+                    ensure_ascii=False,
+                )
+            if preference_mode == "frequent":
+                items = self.command_runtime.history_service.list_frequent(
+                    platform_id=platform_id,
+                    target_user_id=target_id,
+                    requester_user_id=requester_id,
+                    is_admin=is_admin,
+                )
+            else:
+                items = self.command_runtime.history_service.list_recent(
+                    platform_id=platform_id,
+                    target_user_id=target_id,
+                    requester_user_id=requester_id,
+                    is_admin=is_admin,
+                )
+            return json.dumps(
+                {
+                    "success": True,
+                    "target": target,
+                    "preference_mode": preference_mode,
+                    "commands": items,
+                },
+                ensure_ascii=False,
+            )
 
         try:
             allowed_plugins = await self._resolve_allowed_plugins(event)
@@ -594,6 +560,18 @@ class HelpService:
                 limit=10,
                 allowed_plugins=allowed_plugins,
             )
+            from ...infrastructure.analysis.keyword_search import get_keyword_searcher
+
+            searcher = get_keyword_searcher()
+            tokens = searcher.tokenize(keyword)
+            for result in results:
+                result["relevance_score"] = searcher.calculate_relevance_score(
+                    result, tokens, keyword.strip()
+                )
+                result["exact"] = self._is_exact_match(keyword, result)
+                result["permission_allowed"] = not (
+                    result.get("tag") == "admin" and not is_admin
+                )
             logger.debug(f"Search command returned {len(results)} results")
             for i, r in enumerate(results):
                 logger.debug(
@@ -606,11 +584,27 @@ class HelpService:
             elif permission_filter == "admin":
                 results = [r for r in results if r.get("tag") == "admin"]
 
+            results = self.command_runtime.history_service.apply_preference_boost(
+                results,
+                platform_id=platform_id,
+                target_user_id=target_id,
+                requester_user_id=requester_id,
+                keyword=keyword,
+                preference_mode=preference_mode,
+                is_admin=is_admin,
+            )
+            for result in results:
+                result.pop("relevance_score", None)
+                result.pop("exact", None)
+                result.pop("permission_allowed", None)
+
             logger.debug(
                 f"After permission filter ({permission_filter}): {len(results)} results remaining"
             )
 
-            matched_custom_groups = self._find_matching_custom_groups(keyword)
+            matched_custom_groups = self._find_matching_custom_groups(
+                keyword, is_admin=is_admin
+            )
 
             if not results:
                 if matched_custom_groups:
@@ -708,105 +702,17 @@ Suggestion: Check WebUI configuration or search with different keywords."""
         actor: str = "user",
         result_mode: str = "auto",
         wait_seconds: float | None = None,
+        target_user: str = "",
     ) -> str:
-        """执行命令，并把监听参数转发到命令执行器。"""
-        allowed_plugins = await self._resolve_allowed_plugins(event)
-
-        def search_suggestions_func(
-            stripped_cmd: str, allowed: set[str] | None
-        ) -> list[str]:
-            display_prefix = self.prefixes[0] if self.prefixes else "/"
-            return [
-                replace_prefix(item["command"], display_prefix)
-                for item in self.command_index.search_commands(
-                    stripped_cmd,
-                    limit=3,
-                    allowed_plugins=allowed,
-                )
-            ]
-
-        result = await self.command_executor.execute(
-            event=event,
-            command=command,
-            allowed_plugins=allowed_plugins,
-            search_suggestions_func=search_suggestions_func,
+        """保持旧公开入口，委托给独立的跨用户命令应用服务。"""
+        return await self.delegated_command_service.execute(
+            event,
+            command,
             actor=actor,
             result_mode=result_mode,
             wait_seconds=wait_seconds,
+            target_user=target_user,
         )
-
-        # Convert StarHandlerMetadata objects to dictionaries for JSON serialization
-        if "matched_handlers" in result:
-            serialized_handlers = []
-            for handler in result["matched_handlers"]:
-                if hasattr(handler, "__dict__"):
-                    # Convert object to dictionary
-                    handler_dict = {
-                        "handler_module_path": getattr(
-                            handler, "handler_module_path", ""
-                        ),
-                        "handler_name": getattr(handler, "handler_name", ""),
-                        "handler_type": getattr(handler, "handler_type", ""),
-                    }
-                    # Add any other relevant attributes
-                    for attr in ["priority", "description", "command"]:
-                        if hasattr(handler, attr):
-                            handler_dict[attr] = getattr(handler, attr)
-                    serialized_handlers.append(handler_dict)
-                else:
-                    # Fallback: use string representation
-                    serialized_handlers.append({"handler": str(handler)})
-            result["matched_handlers"] = serialized_handlers
-
-        return json.dumps(result, ensure_ascii=False, indent=2)
-
-    async def list_all_plugins_and_commands(self, event: AstrMessageEvent) -> str:
-        """List all plugins and commands"""
-        try:
-            summaries = self.command_index.get_plugin_summaries()
-            result = []
-            for summary in summaries.values():
-                if summary.plugin.startswith("_custom_group_"):
-                    continue
-
-                commands = []
-                for cmd in summary.commands:
-                    if cmd.is_alias_of:
-                        continue
-                    commands.append(
-                        {
-                            "command": cmd.command,
-                            "description": cmd.description,
-                            "pattern": cmd.pattern,
-                            "type": cmd.type,
-                        }
-                    )
-
-                result.append(
-                    {
-                        "plugin_name": summary.plugin,
-                        "display_name": summary.display_name,
-                        "version": summary.plugin_version,
-                        "description": summary.plugin_desc,
-                        "command_count": len(commands),
-                        "commands": commands,
-                    }
-                )
-
-            return ListPluginsResponse(
-                success=True,
-                plugin_count=len(result),
-                command_prefix=self.prefixes,
-                plugins=result,
-            ).to_json()
-        except Exception as exc:
-            logger.error(f"Failed to list plugins and commands: {exc}")
-            return ListPluginsResponse(
-                success=False,
-                plugin_count=0,
-                plugins=[],
-                error=str(exc),
-            ).to_json()
 
     async def list_custom_groups(self) -> str:
         """List custom groups"""
@@ -863,6 +769,11 @@ def get_help_service() -> HelpService:
 def reset_help_service() -> None:
     """Reset help service (for testing)."""
     global _help_service_instance
+    if (
+        _help_service_instance is not None
+        and _help_service_instance.command_executor._background_tasks
+    ):
+        raise RuntimeError("HelpService 仍有后台命令任务；必须先 await terminate()")
     _help_service_instance = None
 
 
@@ -879,6 +790,10 @@ def init_plugin_service(
     Returns:
         HelpService instance
     """
+    # 插件重复初始化必须彻底重绑 context/config；不得复用旧运行时单例。
+    reset_help_service()
+    reset_command_executor()
+    reset_command_index()
     # Initialize global singletons - order matters!
     # Must init paths first because config loading needs data_dir
     set_context(context)
@@ -893,13 +808,5 @@ def init_plugin_service(
     # IMPORTANT: Update command index config to load custom groups!
     # This must be called before any cache building to ensure custom_groups are loaded
     service.command_index.update_config()
-
-    # Clear cache directory and command index on plugin load to ensure fresh cache
-    try:
-        clear_cache_dir()
-        invalidate_command_cache()
-        logger.info("Cache directory cleared on plugin load")
-    except Exception as exc:
-        logger.warning(f"Failed to clear cache directory: {exc}")
 
     return get_help_service()

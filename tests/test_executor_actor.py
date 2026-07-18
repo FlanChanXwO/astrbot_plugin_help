@@ -6,6 +6,7 @@ import asyncio
 import inspect
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -22,6 +23,7 @@ from src.infrastructure.utils.paths import init_plugin_paths
 
 from tests.mocks import (
     MockAstrMessageEvent,
+    MockCommandFilter,
     MockContext,
     MockHandler,
     MockMessageEventResult,
@@ -61,7 +63,13 @@ class _DeepcopyHostileConfig(dict):
 class _WakingCheckStage:
     """按测试事件上的 extra 模拟 AstrBot 唤醒阶段。"""
 
-    handlers = [MockHandler("help", handler_module_path="help_plugin")]
+    handlers = [
+        MockHandler(
+            "help",
+            event_filters=[MockCommandFilter("help")],
+            handler_module_path="help_plugin",
+        )
+    ]
     send_during_process = False
 
     async def initialize(self, ctx) -> None:
@@ -125,7 +133,11 @@ def _setup_singletons():
     _Scheduler.release = asyncio.Event()
     _Scheduler.command_events = []
     _WakingCheckStage.handlers = [
-        MockHandler("help", handler_module_path="help_plugin")
+        MockHandler(
+            "help",
+            event_filters=[MockCommandFilter("help")],
+            handler_module_path="help_plugin",
+        )
     ]
     _WakingCheckStage.send_during_process = False
     with (
@@ -571,7 +583,11 @@ class TestNoDispatchOnRejectedCommand:
     async def test_blacklisted_command_not_dispatched(self, mock_event):
         """黑名单命令不调度后台执行。"""
         _WakingCheckStage.handlers = [
-            MockHandler("admin", handler_module_path="admin_plugin.main")
+            MockHandler(
+                "admin",
+                event_filters=[MockCommandFilter("admin")],
+                handler_module_path="admin_plugin.main",
+            )
         ]
         executor = CommandExecutor()
         executor.cfg.enable_ai_command_notify = False
@@ -583,6 +599,104 @@ class TestNoDispatchOnRejectedCommand:
         assert result["success"] is False
         assert result["error"] == "blacklisted_plugin"
         assert not _Scheduler.started.is_set()
+
+    @pytest.mark.asyncio
+    async def test_custom_command_with_specific_blacklisted_handler_is_rejected(
+        self, mock_event
+    ):
+        """custom 只豁免通用外部路由，真实具体黑名单 handler 仍必须拒绝。"""
+        _WakingCheckStage.handlers = [
+            MockHandler(
+                "help",
+                event_filters=[MockCommandFilter("help")],
+                handler_module_path="blocked_plugin.main",
+            )
+        ]
+        executor = CommandExecutor()
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+        executor.cfg.ai_command_blacklist = {"blocked_plugin"}
+
+        result = await executor.execute(event=mock_event, command="/help")
+
+        assert result["success"] is False
+        assert result["error"] == "blacklisted_plugin"
+        assert not _Scheduler.started.is_set()
+
+    @pytest.mark.asyncio
+    async def test_custom_regex_with_specific_blacklisted_handler_is_rejected(
+        self, mock_event
+    ):
+        """正则目录条目不能绕过实际匹配到的具体黑名单 handler。"""
+        executor = CommandExecutor()
+        executor.cfg.custom_groups = [
+            CustomGroupConfig(
+                group_name="正则",
+                commands=[
+                    CustomGroupCommand(
+                        type="regex",
+                        pattern=r"^给\S+打卡$",
+                        examples=["给橡皮糖打卡"],
+                    )
+                ],
+            )
+        ]
+        _WakingCheckStage.handlers = [
+            MockHandler(
+                "checkin",
+                event_filters=[SimpleNamespace(filter_type="regex")],
+                handler_module_path="blocked_plugin.main",
+            )
+        ]
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+        executor.cfg.ai_command_blacklist = {"blocked_plugin"}
+
+        result = await executor.execute(event=mock_event, command="给橡皮糖打卡")
+
+        assert result["execution_state"] == "rejected"
+        assert result["error"] == "blacklisted_plugin"
+        assert not _Scheduler.started.is_set()
+
+    @pytest.mark.asyncio
+    async def test_custom_regex_with_generic_handler_is_external_dispatched(
+        self, mock_event, monkeypatch
+    ):
+        """正则目录条目仅命中通用 handler 时仍按外部路由受理。"""
+
+        async def process_without_local_output(scheduler, event, from_stage=0) -> None:
+            scheduler.command_events.append(event)
+            scheduler.started.set()
+
+        monkeypatch.setattr(_Scheduler, "_process_stages", process_without_local_output)
+        executor = CommandExecutor()
+        executor.cfg.custom_groups = [
+            CustomGroupConfig(
+                group_name="正则",
+                commands=[
+                    CustomGroupCommand(
+                        type="regex",
+                        pattern=r"^给\S+打卡$",
+                        examples=["给橡皮糖打卡"],
+                    )
+                ],
+            )
+        ]
+        _WakingCheckStage.handlers = [
+            MockHandler(
+                "on_message",
+                event_filters=[SimpleNamespace(filter_type="event_message_type")],
+                handler_module_path="external_router",
+            )
+        ]
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        result = await executor.execute(event=mock_event, command="给橡皮糖打卡")
+
+        assert result["execution_state"] == "external_dispatched"
+        assert result["dispatched"] is True
+        assert len(_Scheduler.command_events) == 1
 
     @pytest.mark.asyncio
     async def test_invalid_actor_not_dispatched(self, mock_event):
@@ -622,7 +736,7 @@ class TestCommandResultListening:
         assert result["success"] is True
         assert result["dispatched"] is True
         assert result["result_type"] == "external_dispatched"
-        assert result["execution_state"] == "accepted"
+        assert result["execution_state"] == "external_dispatched"
         assert result["external_response_pending"] is True
         assert result["output_complete"] is False
         assert result["messages"] == []
@@ -659,7 +773,7 @@ class TestCommandResultListening:
         result = await executor.execute(event=mock_event, command="/help")
 
         assert result["success"] is True
-        assert result["execution_state"] == "running"
+        assert result["execution_state"] == "accepted"
         assert result["output_complete"] is False
         assert _Scheduler.started.is_set()
         assert any(not task.cancelled() for task in executor._background_tasks)
@@ -679,7 +793,7 @@ class TestCommandResultListening:
         )
 
         assert result["success"] is True
-        assert result["execution_state"] == "running"
+        assert result["execution_state"] == "accepted"
         assert _Scheduler.started.is_set()
         _Scheduler.release.set()
         await asyncio.gather(*executor._background_tasks)
@@ -693,7 +807,7 @@ class TestCommandResultListening:
             ("custom", 0.01),
         ],
     )
-    async def test_stalled_scheduler_initialization_returns_not_started(
+    async def test_stalled_scheduler_initialization_is_accepted_without_retry(
         self, mock_event, monkeypatch, result_mode, wait_seconds
     ):
         """初始化卡住时，任意监听模式都不得永久等待或虚报已启动。"""
@@ -715,12 +829,13 @@ class TestCommandResultListening:
             wait_seconds=wait_seconds,
         )
 
-        assert result["success"] is False
-        assert result["execution_state"] == "not_started"
-        assert result["result_type"] == "not_started"
-        assert result["error"] == "scheduler_start_timeout"
-        assert result["dispatched"] is False
+        assert result["success"] is True
+        assert result["execution_state"] == "accepted"
+        assert result["result_type"] == "startup_pending"
+        assert result["error"] is None
+        assert result["dispatched"] is True
         assert result["output_complete"] is False
+        assert result["retryable"] is False
 
         initialization_release.set()
         _Scheduler.release.set()

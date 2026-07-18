@@ -29,6 +29,30 @@
     "default": 60,
     "hint": "execute_astrbot_command 的 custom 模式单次等待上限；仅限制 tool 等待，不会取消命令执行"
   },
+  "enable_sensitive_delegation": {
+    "description": "允许敏感命令跨用户委托",
+    "type": "bool",
+    "default": false,
+    "hint": "默认关闭；开启后仍要求原请求者为管理员且目标用户允许敏感代操作"
+  },
+  "allow_admin_target_override": {
+    "description": "管理员可绕过目标隐私设置",
+    "type": "bool",
+    "default": false,
+    "hint": "危险能力；开启后管理员可绕过目标用户的 deny_sensitive 或 deny_all 设置"
+  },
+  "ai_command_dedupe_window_seconds": {
+    "description": "AI 命令重复抑制窗口（秒）",
+    "type": "float",
+    "default": 60,
+    "hint": "同会话、请求者、目标和命令在窗口内只调度一次，并返回原回执"
+  },
+  "command_history_retention_days": {
+    "description": "命令历史保留天数",
+    "type": "int",
+    "default": 90,
+    "hint": "命令明细历史和观察身份的保留窗口；长期聚合不受影响"
+  },
   "ai_command_blacklist": {
     "description": "AI命令调用黑名单",
     "type": "list",
@@ -41,20 +65,6 @@
       "astrbot-reminder"
     ],
     "hint": "禁止AI通过 execute_astrbot_command 调用的插件列表，用于预防AI绕过权限或调用敏感命令"
-  },
-  "ignored_plugins": {
-    "description": "黑名单插件 ID",
-    "type": "list",
-    "default": [
-      "astrbot",
-      "astrbot-web-searcher",
-      "astrbot-python-interpreter",
-      "session_controller",
-      "builtin_commands",
-      "astrbot-reminder",
-      "astrbot_plugin_help"
-    ],
-    "hint": "屏蔽不想展示、导致问题的插件菜单 (使用 name 字段)"
   },
   "regex": {
     "description": "正则触发器设置",
@@ -70,93 +80,6 @@
           "step": 1
         },
         "hint": "按从简单到复杂的顺序生成，超出上限时只保留前 N 条"
-      }
-    }
-  },
-  "rendering": {
-    "description": "渲染引擎设置",
-    "type": "object",
-    "items": {
-      "use_t2i": {
-        "description": "使用 AstrBot 内置图片渲染",
-        "type": "bool",
-        "default": true,
-        "hint": "开启后使用 AstrBot 内置的 t2i 服务渲染图片，无需安装 Playwright (推荐，性能更好)"
-      },
-      "html_theme": {
-        "description": "HTML 主题",
-        "type": "string",
-        "default": "simple",
-        "options": [
-          "simple"
-        ],
-        "hint": "HTML 渲染时的主题名称，目前仅支持 simple (简约风格)"
-      },
-      "jpeg_quality": {
-        "description": "JPEG 图片质量",
-        "type": "int",
-        "slider": {
-          "min": 50,
-          "max": 100,
-          "step": 5
-        },
-        "default": 95,
-        "hint": "HTML 渲染时 JPEG 图片的质量 (1-100)，数值越高质量越好但文件越大"
-      },
-      "timeout_analysis": {
-        "description": "数据分析超时 (秒)",
-        "type": "float",
-        "slider": {
-          "min": 3,
-          "max": 30,
-          "step": 1
-        },
-        "default": 10.0,
-        "hint": "生成数据结构的超时时间，根据插件数量调整"
-      },
-      "max_concurrent_tasks": {
-        "description": "最大并发渲染数",
-        "type": "int",
-        "slider": {
-          "min": 1,
-          "max": 20,
-          "step": 1
-        },
-        "default": 2,
-        "hint": "同时进行的渲染任务数量限制 (1-20)，根据 CPU 调整"
-      },
-      "giant_threshold": {
-        "description": "巨型块阈值 (pt)",
-        "type": "int",
-        "slider": {
-          "min": 100,
-          "max": 3000,
-          "step": 100
-        },
-        "default": 1500,
-        "hint": "超过此高度的插件将独占一行显示 (仅 Event/Filter 模式有效)"
-      },
-      "render_wait_timeout": {
-        "description": "渲染等待超时 (毫秒)",
-        "type": "int",
-        "slider": {
-          "min": 5000,
-          "max": 30000,
-          "step": 1000
-        },
-        "default": 10000,
-        "hint": "等待字体和图片加载的最大时间，网络较慢时可增加此值"
-      },
-      "render_image_timeout": {
-        "description": "单张图片加载超时 (毫秒)",
-        "type": "int",
-        "slider": {
-          "min": 1000,
-          "max": 10000,
-          "step": 500
-        },
-        "default": 5000,
-        "hint": "单张图片的最大加载时间，超时后将继续渲染"
       }
     }
   }

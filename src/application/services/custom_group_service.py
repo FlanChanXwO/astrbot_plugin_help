@@ -17,6 +17,7 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from ...infrastructure.config.datamodels import CustomGroupCommand, CustomGroupConfig
+from ...infrastructure.storage import CommandCatalog
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ CommandFinder = Callable[[str], bool]
 Invalidator = Callable[[], Any]
 
 _custom_group_service_instance: CustomGroupService | None = None
+_runtime_catalog: CommandCatalog | None = None
 _MISSING = object()
 
 
@@ -42,20 +44,33 @@ class CustomGroupService:
         save_groups: GroupsSaver | None = None,
         find_real_command: CommandFinder | None = None,
         invalidate_command_index: Invalidator | None = None,
-        clear_render_cache: Invalidator | None = None,
+        clear_runtime_cache: Invalidator | None = None,
         command_prefixes: Callable[[], Sequence[str]] | None = None,
     ) -> None:
         """注入边界，使业务规则无需依赖 AstrBot 运行时即可测试。"""
-        if get_groups is None or set_groups is None or save_groups is None:
+        if get_groups is None or set_groups is None:
             from ...infrastructure.config import (
                 get_config,
-                save_custom_groups_to_storage,
                 update_custom_groups_in_config,
             )
 
             get_groups = get_groups or (lambda: get_config().custom_groups)
             set_groups = set_groups or update_custom_groups_in_config
-            save_groups = save_groups or save_custom_groups_to_storage
+        if save_groups is None:
+
+            def save_to_catalog(groups: list[CustomGroupConfig]) -> bool:
+                catalog = _runtime_catalog
+                if catalog is None:
+                    from ...infrastructure.utils.paths import get_data_dir
+
+                    catalog = CommandCatalog(get_data_dir() / "command_catalog.db")
+                    catalog.initialize()
+                catalog.replace_all_custom_groups(
+                    [group.model_dump(mode="json") for group in groups]
+                )
+                return True
+
+            save_groups = save_to_catalog
 
         self._get_groups = get_groups
         self._set_groups = set_groups
@@ -64,9 +79,7 @@ class CustomGroupService:
         self._invalidate_command_index = (
             invalidate_command_index or self._invalidate_command_index_default
         )
-        self._clear_render_cache = (
-            clear_render_cache or self._clear_render_cache_default
-        )
+        self._clear_runtime_cache = clear_runtime_cache or (lambda: None)
         self._command_prefixes = command_prefixes or self._command_prefixes_default
         self._lock = asyncio.Lock()
         # token 只保存在本服务实例中，因此配置重载的新实例和插件重启均会失效。
@@ -223,25 +236,6 @@ class CustomGroupService:
                 clear_delete_tokens={previous_group_name, group.group_name},
             )
 
-    async def delete_group_for_web(self, group_name: str) -> JsonDict:
-        """兼容既有 Web 单步删除；AI 删除仍必须使用确认 token。"""
-        normalized_name = self._required_text(group_name, "group_name")
-        if isinstance(normalized_name, dict):
-            return normalized_name
-        async with self._lock:
-            groups = self._copy_groups()
-            index = self._find_group_index(groups, normalized_name)
-            if index is None:
-                return self._error("group_not_found", f"未找到分组 '{normalized_name}'")
-            deleted_group = groups[index].model_dump(mode="json")
-            del groups[index]
-            return await self._commit(
-                groups,
-                "已删除自定义命令组",
-                deleted_group,
-                clear_delete_tokens={normalized_name},
-            )
-
     async def update_group(
         self,
         group_name: str,
@@ -315,11 +309,16 @@ class CustomGroupService:
         command: str | None = None,
         pattern: str | None = None,
         description: str = "",
-        is_admin: bool = False,
+        is_admin: bool | None = None,
+        permission_level: str | None = None,
+        delegation_policy: str | None = None,
+        history_mode: str = "command",
         hidden: bool = False,
         aliases: list[str] | None = None,
         examples: list[str] | None = None,
         sub_commands: list[str] | None = None,
+        linked_plugin: str | None = None,
+        availability: str = "available",
     ) -> JsonDict:
         """向分组添加目录条目，不注册任何动态命令处理器。"""
         normalized_group_name = self._required_text(group_name, "group_name")
@@ -338,10 +337,15 @@ class CustomGroupService:
                 pattern=pattern,
                 description=description,
                 is_admin=is_admin,
+                permission_level=permission_level,
+                delegation_policy=delegation_policy,
+                history_mode=history_mode,
                 hidden=hidden,
                 aliases=[] if aliases is None else aliases,
                 examples=[] if examples is None else examples,
                 sub_commands=[] if sub_commands is None else sub_commands,
+                linked_plugin=linked_plugin,
+                availability=availability,
                 allow_legacy_primary_empty=False,
             )
             if isinstance(prepared, dict):
@@ -374,15 +378,36 @@ class CustomGroupService:
         pattern: str | None = None,
         description: str | None = None,
         is_admin: bool | None = None,
+        permission_level: str | None = None,
+        delegation_policy: str | None = None,
+        history_mode: str | None = None,
         hidden: bool | None = None,
         aliases: list[str] | None = None,
         examples: list[str] | None = None,
         sub_commands: list[str] | None = None,
+        linked_plugin: str | None = None,
+        clear_linked_plugin: bool = False,
+        availability: str | None = None,
     ) -> JsonDict:
-        """按自然键更新一个目录条目，空字符串与空列表代表显式清空。"""
+        """按自然键更新条目；插件关联只能由专用字段显式清除。"""
         normalized_group_name = self._required_text(group_name, "group_name")
         if isinstance(normalized_group_name, dict):
             return normalized_group_name
+        invalid_clear_linked_plugin = self._validate_bool(
+            clear_linked_plugin, "clear_linked_plugin"
+        )
+        if invalid_clear_linked_plugin is not None:
+            return invalid_clear_linked_plugin
+        if clear_linked_plugin and linked_plugin is not None:
+            return self._error(
+                "linked_plugin_clear_conflict",
+                "clear_linked_plugin=true 与 linked_plugin 互斥",
+            )
+        if clear_linked_plugin and availability == "missing_plugin":
+            return self._error(
+                "linked_plugin_clear_conflict",
+                "清除插件关联时 availability 不能为 missing_plugin",
+            )
         async with self._lock:
             groups = self._copy_groups()
             group_index = self._find_group_index(groups, normalized_group_name)
@@ -398,6 +423,23 @@ class CustomGroupService:
                 return locate_error
             assert command_index is not None
             existing = group.commands[command_index]
+            final_permission = permission_level
+            if final_permission is None:
+                final_permission = (
+                    "admin"
+                    if is_admin is True
+                    else "normal"
+                    if is_admin is False
+                    else existing.permission_level
+                )
+            final_is_admin = (
+                is_admin if is_admin is not None else final_permission == "admin"
+            )
+            final_delegation = delegation_policy
+            if final_delegation is None:
+                final_delegation = existing.delegation_policy
+                if final_permission == "admin" and final_delegation == "normal":
+                    final_delegation = "sensitive"
             prepared = self._prepare_command(
                 command_type=command_type,
                 command=existing.command if command is None else command,
@@ -405,7 +447,12 @@ class CustomGroupService:
                 description=existing.description
                 if description is None
                 else description,
-                is_admin=existing.is_admin if is_admin is None else is_admin,
+                is_admin=final_is_admin,
+                permission_level=final_permission,
+                delegation_policy=final_delegation,
+                history_mode=(
+                    existing.history_mode if history_mode is None else history_mode
+                ),
                 hidden=existing.hidden if hidden is None else hidden,
                 aliases=list(existing.aliases) if aliases is None else aliases,
                 examples=list(existing.examples) if examples is None else examples,
@@ -413,6 +460,20 @@ class CustomGroupService:
                     list(existing.sub_commands)
                     if sub_commands is None
                     else sub_commands
+                ),
+                linked_plugin=(
+                    None
+                    if clear_linked_plugin
+                    else existing.linked_plugin
+                    if linked_plugin is None
+                    else linked_plugin
+                ),
+                availability=(
+                    "available"
+                    if clear_linked_plugin
+                    else existing.availability
+                    if availability is None
+                    else availability
                 ),
                 allow_legacy_primary_empty=True,
             )
@@ -577,7 +638,7 @@ class CustomGroupService:
 
         for label, invalidator in (
             ("命令索引", self._invalidate_command_index),
-            ("渲染缓存", self._clear_render_cache),
+            ("运行态缓存", self._clear_runtime_cache),
         ):
             try:
                 result = invalidator()
@@ -618,11 +679,16 @@ class CustomGroupService:
                 command=raw_command.get("command"),
                 pattern=raw_command.get("pattern"),
                 description=raw_command.get("description", ""),
-                is_admin=raw_command.get("is_admin", False),
+                is_admin=raw_command.get("is_admin"),
+                permission_level=raw_command.get("permission_level"),
+                delegation_policy=raw_command.get("delegation_policy"),
+                history_mode=raw_command.get("history_mode", "command"),
                 hidden=raw_command.get("hidden", False),
                 aliases=raw_command.get("aliases", []),
                 examples=raw_command.get("examples", []),
                 sub_commands=raw_command.get("sub_commands", []),
+                linked_plugin=raw_command.get("linked_plugin"),
+                availability=raw_command.get("availability", "available"),
                 # 兼容旧 Web API：普通目录条目可仅使用 aliases。
                 allow_legacy_primary_empty=True,
             )
@@ -644,11 +710,16 @@ class CustomGroupService:
         command: str | None,
         pattern: str | None,
         description: str,
-        is_admin: bool,
+        is_admin: bool | None,
+        permission_level: str | None,
+        delegation_policy: str | None,
+        history_mode: str,
         hidden: bool,
         aliases: list[str],
         examples: list[str],
         sub_commands: list[str],
+        linked_plugin: str | None,
+        availability: str,
         allow_legacy_primary_empty: bool,
     ) -> CustomGroupCommand | JsonDict:
         if not isinstance(command_type, str) or command_type not in {
@@ -661,9 +732,54 @@ class CustomGroupService:
         invalid_description = self._validate_text(description, "description")
         if invalid_description is not None:
             return invalid_description
-        invalid_is_admin = self._validate_bool(is_admin, "is_admin")
-        if invalid_is_admin is not None:
-            return invalid_is_admin
+        if is_admin is not None:
+            invalid_is_admin = self._validate_bool(is_admin, "is_admin")
+            if invalid_is_admin is not None:
+                return invalid_is_admin
+        if permission_level is None:
+            permission_level = "admin" if is_admin is True else "normal"
+        elif permission_level not in {"normal", "admin"}:
+            return self._error(
+                "invalid_permission_level",
+                "permission_level 必须为 normal 或 admin",
+            )
+        if is_admin is not None and is_admin != (permission_level == "admin"):
+            return self._error(
+                "inconsistent_permission",
+                "is_admin 与 permission_level 不一致",
+            )
+        is_admin = permission_level == "admin"
+        if delegation_policy is None:
+            delegation_policy = "sensitive" if permission_level == "admin" else "normal"
+        if delegation_policy not in {"normal", "sensitive", "forbidden"}:
+            return self._error(
+                "invalid_delegation_policy",
+                "delegation_policy 必须为 normal、sensitive 或 forbidden",
+            )
+        if permission_level == "admin" and delegation_policy == "normal":
+            return self._error(
+                "unsafe_delegation_policy",
+                "管理员命令 delegation_policy 至少为 sensitive",
+            )
+        if history_mode not in {"none", "command", "full"}:
+            return self._error(
+                "invalid_history_mode", "history_mode 必须为 none、command 或 full"
+            )
+        if delegation_policy in {"sensitive", "forbidden"} and history_mode == "full":
+            return self._error(
+                "unsafe_history_mode", "敏感或禁止委托命令不能记录完整参数"
+            )
+        if linked_plugin is not None and (
+            not isinstance(linked_plugin, str) or not linked_plugin.strip()
+        ):
+            return self._error(
+                "invalid_linked_plugin", "linked_plugin 必须是非空字符串或 null"
+            )
+        if availability not in {"available", "missing_plugin"}:
+            return self._error(
+                "invalid_availability",
+                "availability 必须为 available 或 missing_plugin",
+            )
         invalid_hidden = self._validate_bool(hidden, "hidden")
         if invalid_hidden is not None:
             return invalid_hidden
@@ -721,11 +837,16 @@ class CustomGroupService:
             type=command_type,
             description=description,
             is_admin=is_admin,
+            permission_level=permission_level,
+            delegation_policy=delegation_policy,
+            history_mode=history_mode,
             hidden=hidden,
             aliases=normalized_aliases,
             pattern=normalized_pattern,
             examples=list(examples),
             sub_commands=list(sub_commands),
+            linked_plugin=linked_plugin.strip() if linked_plugin else None,
+            availability=availability,
         )
 
     def _find_command_index(
@@ -963,12 +1084,6 @@ class CustomGroupService:
         get_command_index().update_config()
         invalidate_command_cache()
 
-    @staticmethod
-    async def _clear_render_cache_default() -> None:
-        from ...infrastructure.persistence.cache_manager import get_cache_manager
-
-        await get_cache_manager().clear_cache()
-
 
 def get_custom_group_service() -> CustomGroupService:
     """获取共享服务实例，使 AI 删除 token 可由 Web/AI 后续调用继续使用。"""
@@ -982,3 +1097,10 @@ def reset_custom_group_service() -> None:
     """重置共享服务实例，供测试与插件运行时重建使用。"""
     global _custom_group_service_instance
     _custom_group_service_instance = None
+
+
+def bind_custom_group_catalog(catalog: CommandCatalog) -> None:
+    """绑定当前插件运行时目录，并让后续 AI/Web CRUD 共享同一权威源。"""
+    global _runtime_catalog
+    _runtime_catalog = catalog
+    reset_custom_group_service()

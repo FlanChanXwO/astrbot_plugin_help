@@ -8,16 +8,12 @@ from pydantic import ValidationError
 
 from src.infrastructure.config import config_manager
 from src.infrastructure.config.config_manager import (
-    clear_config,
-    init_config,
     save_custom_groups_to_storage,
 )
 from src.infrastructure.config.datamodels import (
-    CustomGroupCommand,
     CustomGroupConfig,
     HelpPluginConfig,
 )
-from src.infrastructure.persistence.cache_manager import CacheManager
 
 
 def test_legacy_raw_config_uses_ai_command_wait_defaults():
@@ -207,81 +203,3 @@ def test_directory_sync_unavailability_does_not_report_successful_save_as_failed
     assert (
         json.loads(storage_path.read_text(encoding="utf-8"))[0]["group_name"] == "常用"
     )
-
-
-def test_cache_key_changes_when_same_named_group_commands_change(tmp_path, monkeypatch):
-    """同名分组内命令变化时，已渲染的帮助图片不能继续命中缓存。"""
-    from src.infrastructure.analysis import command_index
-
-    class EmptyContext:
-        def get_all_stars(self):
-            return []
-
-    class EmptyCommandIndex:
-        context = EmptyContext()
-
-    monkeypatch.setattr(command_index, "get_command_index", EmptyCommandIndex)
-    monkeypatch.setattr(
-        config_manager,
-        "_get_custom_groups_storage_path",
-        lambda: tmp_path / "custom_groups.json",
-    )
-    monkeypatch.setattr(
-        "src.infrastructure.persistence.cache_manager.get_data_dir", lambda: tmp_path
-    )
-    config = init_config({})
-    cache_manager = CacheManager()
-
-    try:
-        config.custom_groups = [
-            CustomGroupConfig(
-                group_name="常用",
-                commands=[CustomGroupCommand(command="天气")],
-            )
-        ]
-        first_key = cache_manager.get_cache_key("all", None, False)
-
-        config.custom_groups = [
-            CustomGroupConfig(
-                group_name="常用",
-                commands=[CustomGroupCommand(command="新闻")],
-            )
-        ]
-        second_key = cache_manager.get_cache_key("all", None, False)
-    finally:
-        clear_config()
-
-    assert second_key != first_key
-
-
-def test_help_service_cache_key_changes_when_group_hidden_flag_changes():
-    """实际帮助渲染缓存键会包含同名分组的完整可持久化内容。"""
-    from src.application.services.help_service import HelpService
-
-    class EmptyContext:
-        def get_all_stars(self):
-            return []
-
-    service = HelpService.__new__(HelpService)
-    service.context = EmptyContext()
-    service.config = HelpPluginConfig(
-        custom_groups=[
-            CustomGroupConfig(
-                group_name="常用",
-                commands=[CustomGroupCommand(command="天气")],
-                hidden=False,
-            )
-        ]
-    )
-    first_key = service._get_cache_key("command", None, False)
-
-    service.config.custom_groups = [
-        CustomGroupConfig(
-            group_name="常用",
-            commands=[CustomGroupCommand(command="天气")],
-            hidden=True,
-        )
-    ]
-    second_key = service._get_cache_key("command", None, False)
-
-    assert second_key != first_key

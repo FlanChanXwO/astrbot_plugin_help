@@ -49,7 +49,6 @@ from tests.mocks import (  # noqa: E402
     MockContext,
     MockDataFactory,
     MockHandler,
-    MockHtmlRenderer,
     MockMessageEventResult,
     MockRegexFilter,
     MockStar,
@@ -84,12 +83,6 @@ def mock_admin_event():
 def mock_context():
     """提供 MockContext 实例."""
     return MockContext()
-
-
-@pytest.fixture
-def mock_renderer():
-    """提供 MockHtmlRenderer 实例."""
-    return MockHtmlRenderer()
 
 
 @pytest.fixture

@@ -7,7 +7,6 @@ from .dto import (
     CommandDetailResponse,
     ExecuteCommandResponse,
     ListCustomGroupsResponse,
-    ListPluginsResponse,
     SearchCommandResponse,
 )
 from .services import (
@@ -33,6 +32,5 @@ __all__ = [
     "SearchCommandResponse",
     "CommandDetailResponse",
     "ExecuteCommandResponse",
-    "ListPluginsResponse",
     "ListCustomGroupsResponse",
 ]

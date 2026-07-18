@@ -53,8 +53,28 @@ class CommandExecutor:
         """更新命令前缀"""
         self.prefixes = prefixes
 
+    async def shutdown(self) -> None:
+        """取消并回收所有 synthetic 后台任务，避免插件重载遗留旧 context。"""
+        tasks = list(self._background_tasks)
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, asyncio.CancelledError):
+                    continue
+                if isinstance(result, BaseException):
+                    logger.error(f"关闭命令后台任务时发生异常: {result}")
+        self._background_tasks.clear()
+
     def _build_command_event(
-        self, event: AstrMessageEvent, command_text: str, actor: str = "user"
+        self,
+        event: AstrMessageEvent,
+        command_text: str,
+        actor: str = "user",
+        target_user_id: str | None = None,
+        target_user_name: str | None = None,
     ) -> AstrMessageEvent:
         """构建命令执行事件"""
         command_event = copy.copy(event)
@@ -85,11 +105,15 @@ class CommandExecutor:
                 command_event.send_typing = event.send_typing
             if hasattr(event, "stop_typing"):
                 command_event.stop_typing = event.stop_typing
+        elif target_user_id:
+            sender.user_id = target_user_id
+            sender.nickname = target_user_name or target_user_id
         command_event.message_obj.sender = sender
 
         command_event.is_wake = False
         command_event.is_at_or_wake_command = False
-        command_event.role = "member"
+        # 委托只改 sender；权限角色仍来自原请求者，防止借目标身份提权。
+        command_event.role = getattr(event, "role", "member")
         # 后台只委托执行命令处理器，不在命令结束后继续触发默认 LLM 对话。
         command_event.call_llm = True
         command_event.plugins_name = None
@@ -100,8 +124,24 @@ class CommandExecutor:
             command_event._extras = {}
         else:
             command_event.clear_extra()
+        command_event.set_extra("_helpinfo_synthetic_command", True)
+        command_event.set_extra(
+            "_helpinfo_original_requester_id", str(event.get_sender_id())
+        )
         self._bind_command_event_sender(command_event, event)
         return command_event
+
+    @staticmethod
+    def is_generic_handler(handler) -> bool:
+        """没有命令/命令组/正则过滤器的 handler 才是通用消息处理器。"""
+        for event_filter in getattr(handler, "event_filters", []) or []:
+            names = {cls.__name__ for cls in type(event_filter).__mro__}
+            filter_type = str(getattr(event_filter, "filter_type", "")).casefold()
+            if names & {"CommandFilter", "CommandGroupFilter", "RegexFilter"}:
+                return False
+            if filter_type in {"command", "command_group", "regex"}:
+                return False
+        return True
 
     def _bind_command_event_sender(
         self, command_event: AstrMessageEvent, source_event: AstrMessageEvent
@@ -477,19 +517,23 @@ class CommandExecutor:
         if not state.scheduler_initialized:
             return {
                 "command": command,
-                "success": False,
-                "message": "命令调度器未在等待窗口内完成初始化，后台任务仍在继续初始化",
+                "success": True,
+                "message": (
+                    "命令调度器仍在后台初始化，本次请求已受理；"
+                    "请等待当前聊天后续消息，不要重复调用。"
+                ),
                 "matched_handlers": matched_handlers,
                 "messages": list(state.messages),
-                "result_type": "not_started",
-                "error": "scheduler_start_timeout",
+                "result_type": "startup_pending",
+                "error": None,
                 "suggestions": suggestions,
                 "is_forwarding_command": is_forwarding_command,
                 "external_response_pending": False,
                 "actor": actor,
-                "dispatched": False,
-                "execution_state": "not_started",
+                "dispatched": True,
+                "execution_state": "accepted",
                 "output_complete": False,
+                "retryable": False,
             }
 
         # 自定义目录命令只命中通用处理器时，常由桥接插件转交到外部 Bot
@@ -512,7 +556,7 @@ class CommandExecutor:
                 "external_response_pending": True,
                 "actor": actor,
                 "dispatched": True,
-                "execution_state": "accepted",
+                "execution_state": "external_dispatched",
                 "output_complete": False,
             }
 
@@ -547,7 +591,7 @@ class CommandExecutor:
             "external_response_pending": False,
             "actor": actor,
             "dispatched": True,
-            "execution_state": "running",
+            "execution_state": "accepted",
             "output_complete": False,
         }
 
@@ -634,6 +678,8 @@ class CommandExecutor:
         actor: str = "user",
         result_mode: str = "auto",
         wait_seconds: float | None = None,
+        target_user_id: str | None = None,
+        target_user_name: str | None = None,
     ) -> dict:
         """
         执行 AstrBot 命令
@@ -798,7 +844,13 @@ class CommandExecutor:
                         f"正则命令 '{final_command}' 无示例，使用派生文本: '{execution_text}'"
                     )
 
-            command_event = self._build_command_event(event, execution_text, actor)
+            command_event = self._build_command_event(
+                event,
+                execution_text,
+                actor,
+                target_user_id=target_user_id,
+                target_user_name=target_user_name,
+            )
             state = _CommandTaskState()
             self._attach_output_capture(command_event, state)
             execution = await self._run_waking_check(command_event, actor)
@@ -806,17 +858,7 @@ class CommandExecutor:
             result_type = execution["result_type"]
 
             # 检查是否只匹配到了通用消息处理器
-            def is_generic_handler(handler) -> bool:
-                """检查是否是通用消息处理器"""
-                handler_name = getattr(handler, "handler_name", "")
-                generic_handlers = {
-                    "on_message",
-                    "on_all_message",
-                    "handle_empty_mention",
-                    "handle_session_control_agent",
-                    "on_file_message",
-                }
-                return handler_name in generic_handlers
+            is_generic_handler = self.is_generic_handler
 
             def is_forwarding_plugin(handler) -> bool:
                 """检查是否是转发插件"""
@@ -864,9 +906,6 @@ class CommandExecutor:
             is_forwarding_command = (
                 is_any_custom_cmd and all_generic and has_forwarding_plugin
             )
-            # 自定义正则命令：即使没有转发插件也不应该被黑名单拦截
-            if is_custom_regex_cmd and not is_forwarding_command:
-                is_forwarding_command = True
 
             # 如果只匹配到通用处理器，需要进一步判断
             if all_generic and matched_handlers:
@@ -1096,4 +1135,6 @@ def get_command_executor() -> CommandExecutor:
 def reset_command_executor() -> None:
     """重置命令执行器（用于测试）。"""
     global _executor_instance
+    if _executor_instance is not None and _executor_instance._background_tasks:
+        raise RuntimeError("CommandExecutor 仍有后台任务；必须先 await shutdown()")
     _executor_instance = None

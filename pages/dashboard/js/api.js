@@ -15,6 +15,14 @@ export async function ready() {
     return await bridge.ready();
 }
 
+function explicitSuccess(result, fallbackMessage) {
+    if (!result || result.success !== true) {
+        const detail = result && (result.error || result.message);
+        throw new Error(detail || fallbackMessage);
+    }
+    return result;
+}
+
 /**
  * 获取自定义分组列表
  * @returns {Promise<Array>}
@@ -22,18 +30,7 @@ export async function ready() {
 export async function getCustomGroups() {
     try {
         const result = await bridge.apiGet('custom-groups');
-        // Handle both formats: {success: true, data: []} and direct array response
-        if (Array.isArray(result)) {
-            return result;
-        }
-        if (result && result.success) {
-            return result.data || [];
-        }
-        if (result && result.error) {
-            throw new Error(result.error);
-        }
-        // If result is an object but not in expected format, return empty array
-        return [];
+        return explicitSuccess(result, '服务未返回明确成功状态').data || [];
     } catch (err) {
         throw new Error(err.message || '未知错误');
     }
@@ -41,24 +38,14 @@ export async function getCustomGroups() {
 
 /**
  * 创建自定义分组
+ * @param {string} currentGroupName - 打开编辑面板时记录的稳定自然键
  * @param {Object} groupData - 分组数据
  * @returns {Promise<Object>}
  */
 export async function createCustomGroup(groupData) {
     try {
         const result = await bridge.apiPost('custom-groups/create', groupData);
-        // Handle both formats: {success: true, ...} and direct boolean/empty response
-        if (result === true || result === null || result === undefined) {
-            return {success: true};
-        }
-        if (result && result.success) {
-            return result;
-        }
-        if (result && result.error) {
-            throw new Error(result.error);
-        }
-        // If no explicit success/error, assume success
-        return {success: true};
+        return explicitSuccess(result, '创建接口未返回明确成功状态');
     } catch (err) {
         throw new Error(err.message || '创建失败');
     }
@@ -70,22 +57,14 @@ export async function createCustomGroup(groupData) {
  * @param {Object} groupData - 分组数据
  * @returns {Promise<Object>}
  */
-export async function updateCustomGroup(index, groupData) {
+export async function updateCustomGroup(index, currentGroupName, groupData) {
     try {
         const result = await bridge.apiPost('custom-groups/update', {
             index: index,
+            current_group_name: currentGroupName,
             group: groupData,
         });
-        if (result === true || result === null || result === undefined) {
-            return {success: true};
-        }
-        if (result && result.success) {
-            return result;
-        }
-        if (result && result.error) {
-            throw new Error(result.error);
-        }
-        return {success: true};
+        return explicitSuccess(result, '更新接口未返回明确成功状态');
     } catch (err) {
         throw new Error(err.message || '更新失败');
     }
@@ -96,22 +75,42 @@ export async function updateCustomGroup(index, groupData) {
  * @param {number} index - 分组索引
  * @returns {Promise<Object>}
  */
-export async function deleteCustomGroup(index) {
+export async function previewDeleteCustomGroup(groupName) {
     try {
-        const result = await bridge.apiPost('custom-groups/delete', {index: index});
-        if (result === true || result === null || result === undefined) {
-            return {success: true};
-        }
-        if (result && result.success) {
-            return result;
-        }
-        if (result && result.error) {
-            throw new Error(result.error);
-        }
-        return {success: true};
+        const result = await bridge.apiPost('custom-groups/delete-preview', {group_name: groupName});
+        return explicitSuccess(result, '删除预览未返回明确成功状态');
+    } catch (err) {
+        throw new Error(err.message || '删除预览失败');
+    }
+}
+
+export async function deleteCustomGroup(groupName, confirmationToken) {
+    try {
+        const result = await bridge.apiPost('custom-groups/delete', {
+            group_name: groupName,
+            confirmation_token: confirmationToken,
+        });
+        return explicitSuccess(result, '删除接口未返回明确成功状态');
     } catch (err) {
         throw new Error(err.message || '删除失败');
     }
+}
+
+export async function getCommands({page = 1, pageSize = 20, query = ''} = {}) {
+    const result = await bridge.apiGet('commands', {
+        page,
+        page_size: pageSize,
+        query,
+    });
+    return explicitSuccess(result, '命令目录接口未返回明确成功状态');
+}
+
+export async function updateCommandPolicy(commandId, policy) {
+    const result = await bridge.apiPost('commands/policy', {
+        command_id: commandId,
+        ...policy,
+    });
+    return explicitSuccess(result, '策略更新接口未返回明确成功状态');
 }
 
 /**

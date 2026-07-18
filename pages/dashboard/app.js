@@ -1,7 +1,16 @@
 /**
  * 应用入口 - 直接创建响应式 store 并作为根作用域
  */
-import {createCustomGroup, deleteCustomGroup, getCustomGroups, ready, updateCustomGroup,} from './js/api.js';
+import {
+    createCustomGroup,
+    deleteCustomGroup,
+    getCommands,
+    getCustomGroups,
+    previewDeleteCustomGroup,
+    ready,
+    updateCommandPolicy,
+    updateCustomGroup,
+} from './js/api.js';
 import {initTheme} from './js/theme.js';
 
 let toastTimer = null;
@@ -16,8 +25,13 @@ function newCommand(type = 'command') {
         pattern: '',
         aliases: [],
         examples: [],
-        is_admin: false,
+        permission_level: 'normal',
+        delegation_policy: 'normal',
+        history_mode: 'command',
         hidden: false,
+        linked_plugin: '',
+        availability: 'available',
+        sub_commands: [],
     };
 }
 
@@ -25,12 +39,15 @@ function newCommand(type = 'command') {
 const store = PetiteVue.reactive({
     // State
     groups: [],
+    catalog: {items: [], total: 0, page: 1, page_size: 20},
+    catalogQuery: '',
     panelVisible: false,
     panelExpanded: false,
     editingIndex: -1,
     toast: {show: false, message: '', type: 'success'},
     dialog: {show: false, title: '', message: '', okText: '确定', okClass: 'btn-danger', resolve: null},
     form: {
+        currentGroupName: '',
         groupName: '',
         groupDesc: '',
         priority: 0,
@@ -56,6 +73,7 @@ const store = PetiteVue.reactive({
         this.editingIndex = index;
         if (index >= 0) {
             const g = this.groups[index];
+            this.form.currentGroupName = g.group_name || '';
             this.form.groupName = g.group_name || '';
             this.form.groupDesc = g.description || '';
             this.form.priority = g.priority || 0;
@@ -66,6 +84,12 @@ const store = PetiteVue.reactive({
                 description: (c.description || '').trim(),
                 aliases: [...(c.aliases || [])],
                 examples: [...(c.examples || [])],
+                sub_commands: [...(c.sub_commands || [])],
+                permission_level: c.permission_level || (c.is_admin ? 'admin' : 'normal'),
+                delegation_policy: c.delegation_policy || (c.is_admin ? 'sensitive' : 'normal'),
+                history_mode: c.history_mode || 'command',
+                linked_plugin: c.linked_plugin || '',
+                availability: c.availability || 'available',
             }));
         } else {
             this._restoreDraft();
@@ -83,6 +107,7 @@ const store = PetiteVue.reactive({
                 ...c,
                 aliases: [...c.aliases],
                 examples: [...c.examples],
+                sub_commands: [...(c.sub_commands || [])],
             })),
         };
     },
@@ -99,6 +124,7 @@ const store = PetiteVue.reactive({
                 _key: cmdKey++,
                 aliases: [...c.aliases],
                 examples: [...c.examples],
+                sub_commands: [...(c.sub_commands || [])],
             }));
             this.showToast('已恢复上次未保存的表单', 'success', 2000);
         } else {
@@ -125,6 +151,7 @@ const store = PetiteVue.reactive({
     resetForm() {
         // 重置表单数据（不显示确认对话框）
         this.form.groupName = '';
+        this.form.currentGroupName = '';
         this.form.groupDesc = '';
         this.form.priority = 0;
         this.form.hidden = false;
@@ -179,6 +206,9 @@ const store = PetiteVue.reactive({
             return;
         }
         for (const cmd of this.form.commands) {
+            if (cmd.permission_level === 'admin' && cmd.delegation_policy === 'normal') {
+                cmd.delegation_policy = 'sensitive';
+            }
             if (cmd.type === 'command' && !cmd.command.trim()) {
                 this.showToast('请填写命令名称', 'error');
                 return;
@@ -187,13 +217,28 @@ const store = PetiteVue.reactive({
                 this.showToast('请填写正则匹配模式', 'error');
                 return;
             }
+            if (['sensitive', 'forbidden'].includes(cmd.delegation_policy) && cmd.history_mode === 'full') {
+                this.showToast('敏感或禁止委托的命令不能记录完整参数', 'error');
+                return;
+            }
         }
         const cmdList = this.form.commands.map((cmd) => {
-            const base = {is_admin: cmd.is_admin, hidden: cmd.hidden, description: (cmd.description || '').trim()};
+            const base = {
+                permission_level: cmd.permission_level,
+                delegation_policy: cmd.delegation_policy,
+                history_mode: cmd.history_mode,
+                linked_plugin: (cmd.linked_plugin || '').trim() || null,
+                availability: cmd.availability,
+                hidden: cmd.hidden,
+                description: (cmd.description || '').trim(),
+                examples: [...(cmd.examples || [])],
+                aliases: [...(cmd.aliases || [])],
+                sub_commands: [...(cmd.sub_commands || [])],
+            };
             if (cmd.type === 'command') {
-                return {...base, type: 'command', command: cmd.command.trim(), aliases: [...cmd.aliases]};
+                return {...base, type: 'command', command: cmd.command.trim()};
             }
-            return {...base, type: 'regex', pattern: cmd.pattern.trim(), examples: [...cmd.examples]};
+            return {...base, type: 'regex', pattern: cmd.pattern};
         });
         const data = {
             group_name: this.form.groupName.trim(),
@@ -204,7 +249,11 @@ const store = PetiteVue.reactive({
         };
         try {
             if (this.editingIndex >= 0) {
-                await updateCustomGroup(this.editingIndex, data);
+                await updateCustomGroup(
+                    this.editingIndex,
+                    this.form.currentGroupName,
+                    data,
+                );
             } else {
                 await createCustomGroup(data);
             }
@@ -220,10 +269,22 @@ const store = PetiteVue.reactive({
 
     async handleDelete() {
         if (this.editingIndex < 0) return;
-        const ok = await this.showConfirm('确定要删除这个分组吗？此操作不可恢复。', '删除分组', '删除', 'btn-danger');
+        const groupName = this.groups[this.editingIndex].group_name;
+        let preview;
+        try {
+            preview = await previewDeleteCustomGroup(groupName);
+        } catch (err) {
+            this.showToast('删除预览失败: ' + err.message, 'error');
+            return;
+        }
+        const summary = preview.group || {};
+        const ok = await this.showConfirm(
+            `将删除“${summary.group_name || groupName}”及 ${(summary.commands || []).length} 条目录命令，此操作不可恢复。`,
+            '确认删除分组', '删除', 'btn-danger'
+        );
         if (!ok) return;
         try {
-            await deleteCustomGroup(this.editingIndex);
+            await deleteCustomGroup(groupName, preview.delete_token);
             this.showToast('分组已删除');
             this._clearDraft();
             this.resetForm();
@@ -231,6 +292,36 @@ const store = PetiteVue.reactive({
             await this.loadGroups();
         } catch (err) {
             this.showToast('删除失败: ' + err.message, 'error');
+        }
+    },
+
+    async loadCatalog(page = 1) {
+        try {
+            this.catalog = await getCommands({
+                page,
+                pageSize: this.catalog.page_size,
+                query: this.catalogQuery,
+            });
+        } catch (err) {
+            this.showToast('加载命令目录失败: ' + err.message, 'error');
+        }
+    },
+
+    async saveCatalogPolicy(item) {
+        try {
+            if (item.permission_level === 'admin' && item.delegation_policy === 'normal') {
+                item.delegation_policy = 'sensitive';
+            }
+            await updateCommandPolicy(item.id, {
+                permission_level: item.permission_level,
+                delegation_policy: item.delegation_policy,
+                history_mode: item.history_mode,
+            });
+            this.showToast('命令策略已更新');
+            await this.loadGroups();
+        } catch (err) {
+            this.showToast('策略更新失败: ' + err.message, 'error');
+            await this.loadCatalog(this.catalog.page);
         }
     },
 });
@@ -241,7 +332,7 @@ window.store = store;
 // Init
 initTheme();
 ready()
-    .then(() => store.loadGroups())
+    .then(() => Promise.all([store.loadGroups(), store.loadCatalog()]))
     .catch((err) => store.showToast('初始化失败: ' + err.message, 'error'));
 
 // Mount petite-vue - use store as the root scope data

@@ -58,6 +58,53 @@
             </div>
         </section>
 
+        <section class="groups-section catalog-section">
+            <div class="section-header">
+                <h2>命令目录</h2>
+                <div class="input-wrapper">
+                    <input type="search" v-model="catalogQuery" placeholder="筛选命令或描述"
+                           @keydown.enter.prevent="loadCatalog(1)">
+                </div>
+                <button class="btn btn-secondary" @click="loadCatalog(1)">筛选</button>
+            </div>
+            <div class="commands-list">
+                <div class="command-item" v-for="item in catalog.items" :key="item.id">
+                    <div class="command-item-main">
+                        <div><strong>{{ item.command }}</strong> · {{ item.plugin || '自定义' }}</div>
+                        <span>{{ item.description || '无描述' }}</span>
+                    </div>
+                    <div class="command-item-options">
+                        <select v-model="item.permission_level">
+                            <option value="normal">普通权限</option>
+                            <option value="admin">管理员权限</option>
+                        </select>
+                        <select v-model="item.delegation_policy">
+                            <option value="normal">允许委托</option>
+                            <option value="sensitive">敏感委托</option>
+                            <option value="forbidden">禁止委托</option>
+                        </select>
+                        <select v-model="item.history_mode">
+                            <option value="none">不记历史</option>
+                            <option value="command">仅命令</option>
+                            <option value="full">完整调用</option>
+                        </select>
+                        <button class="btn btn-secondary" @click="saveCatalogPolicy(item)">保存策略</button>
+                    </div>
+                    <p class="hint" v-if="['sensitive', 'forbidden'].includes(item.delegation_policy) && item.history_mode === 'full'">
+                        敏感或禁止委托的命令不能使用完整历史模式。
+                    </p>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-secondary" :disabled="catalog.page <= 1"
+                        @click="loadCatalog(catalog.page - 1)">上一页</button>
+                <span>第 {{ catalog.page }} 页，共 {{ catalog.total }} 条</span>
+                <button class="btn btn-secondary"
+                        :disabled="catalog.page * catalog.page_size >= catalog.total"
+                        @click="loadCatalog(catalog.page + 1)">下一页</button>
+            </div>
+        </section>
+
         <!-- 面板遮罩 -->
         <div class="panel-overlay" :class="{ visible: panelVisible }" @click="closePanel()"></div>
 
@@ -158,20 +205,6 @@
                                          :class="cmd.type === 'regex' ? 'visible' : 'hidden'">
                                         <label>正则匹配模式 <span class="required">*</span></label>
                                         <input type="text" v-model="cmd.pattern" placeholder="例如: ^来.*色图$">
-                                        <div class="examples-section" style="margin-top: 8px;">
-                                            <label style="font-size: 12px; color: #64748b;">示例列表 (可选)</label>
-                                            <div class="tags-input-wrapper">
-                                                <div class="tags-list">
-                                                    <span class="tag" v-for="item in cmd.examples" :key="item">
-                                                        {{ item }}
-                                                        <button type="button" class="tag-remove"
-                                                                @click="cmd.examples.splice(cmd.examples.indexOf(item), 1)">×</button>
-                                                    </span>
-                                                </div>
-                                                <input type="text" class="tag-input" placeholder="输入后按回车"
-                                                       @keydown.enter.prevent="$event.target.value.trim() && !cmd.examples.includes($event.target.value.trim()) ? (cmd.examples.push($event.target.value.trim()), $event.target.value = '') : null">
-                                            </div>
-                                        </div>
                                         <div class="desc-section" style="margin-top: 8px;">
                                             <label style="font-size: 12px; color: #64748b;">命令描述</label>
                                             <input type="text" v-model="cmd.description" placeholder="简短描述该正则命令的作用" style="width: 100%; padding: 6px 8px; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 13px;">
@@ -184,6 +217,22 @@
                                         <path d="M18 6L6 18M6 6l12 12"/>
                                     </svg>
                                 </button>
+                            </div>
+                            <!-- 普通命令与正则触发共用同一 examples 数据和编辑器。 -->
+                            <div class="examples-section" data-field="command-examples"
+                                 data-command-types="command regex" style="margin-top: 8px;">
+                                <label style="font-size: 12px; color: #64748b;">命令示例 (可选)</label>
+                                <div class="tags-input-wrapper">
+                                    <div class="tags-list">
+                                        <span class="tag" v-for="item in cmd.examples" :key="item">
+                                            {{ item }}
+                                            <button type="button" class="tag-remove"
+                                                    @click="cmd.examples.splice(cmd.examples.indexOf(item), 1)">×</button>
+                                        </span>
+                                    </div>
+                                    <input type="text" class="tag-input" placeholder="输入后按回车"
+                                           @keydown.enter.prevent="$event.target.value.trim() && !cmd.examples.includes($event.target.value.trim()) ? (cmd.examples.push($event.target.value.trim()), $event.target.value = '') : null">
+                                </div>
                             </div>
                             <div class="command-item-options">
                                 <div class="trigger-type-wrapper">
@@ -200,15 +249,51 @@
                                 </div>
                                 <div class="checkbox-group-inline">
                                     <label class="toggle-switch">
-                                        <input type="checkbox" v-model="cmd.is_admin">
-                                        <span class="toggle-slider"></span>
-                                        <span class="toggle-label">管理员命令</span>
-                                    </label>
-                                    <label class="toggle-switch">
                                         <input type="checkbox" v-model="cmd.hidden">
                                         <span class="toggle-slider"></span>
                                         <span class="toggle-label">隐藏命令</span>
                                     </label>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>权限等级</label>
+                                        <select v-model="cmd.permission_level">
+                                            <option value="normal">普通</option>
+                                            <option value="admin">管理员</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>委托策略</label>
+                                        <select v-model="cmd.delegation_policy">
+                                            <option value="normal">允许</option>
+                                            <option value="sensitive">敏感</option>
+                                            <option value="forbidden">禁止</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>历史模式</label>
+                                        <select v-model="cmd.history_mode">
+                                            <option value="none">不记录</option>
+                                            <option value="command">仅命令</option>
+                                            <option value="full">完整调用</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <p class="hint" v-if="['sensitive', 'forbidden'].includes(cmd.delegation_policy) && cmd.history_mode === 'full'">
+                                    敏感或禁止委托不能选择完整历史；后端也会拒绝该组合。
+                                </p>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label>关联插件</label>
+                                        <input type="text" v-model="cmd.linked_plugin" placeholder="可选插件名称">
+                                    </div>
+                                    <div class="form-group">
+                                        <label>可用状态</label>
+                                        <select v-model="cmd.availability">
+                                            <option value="available">可用</option>
+                                            <option value="missing_plugin">插件缺失</option>
+                                        </select>
+                                    </div>
                                 </div>
                             </div>
                         </div>

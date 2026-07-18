@@ -10,7 +10,6 @@ from .mock_context import (
 )
 from .mock_data import MockDataFactory
 from .mock_event import MockAstrMessageEvent, MockMessageEventResult
-from .mock_renderer import MockHtmlRenderer
 
 __all__ = [
     "MockAstrMessageEvent",
@@ -21,6 +20,5 @@ __all__ = [
     "MockHandler",
     "MockRegexFilter",
     "MockStar",
-    "MockHtmlRenderer",
     "MockDataFactory",
 ]
