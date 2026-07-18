@@ -102,6 +102,14 @@ class CommandRuntimeService:
             if row.get("inactive", False):
                 continue
             source_plugin = str(row.get("plugin") or "")
+            entry_type = str(row.get("type") or "command")
+            # CommandGroupFilter 的根触发式在 4.26 registry 中标为 group，
+            # 但对目录与 synthetic dispatch 来说仍是普通命令。SQLite 只保存
+            # 可执行的 command/regex，其他事件 handler 不进入命令目录。
+            if entry_type == "group":
+                entry_type = "command"
+            elif entry_type not in {"command", "regex"}:
+                continue
             if not source_plugin.startswith("_custom_group_") and (
                 plugin is None or source_plugin == plugin
             ):
@@ -110,7 +118,7 @@ class CommandRuntimeService:
                         "plugin": source_plugin,
                         "command": row.get("command") or command_key,
                         "pattern": row.get("pattern"),
-                        "type": row.get("type", "command"),
+                        "type": entry_type,
                         "description": row.get("description", ""),
                         "is_admin": row.get("tag") == "admin",
                         "hidden": row.get("hidden", False),
@@ -136,9 +144,14 @@ class CommandRuntimeService:
             if getattr(star, "activated", True)
             if (name := self._plugin_name(star))
         }
-        return self.catalog_service.sync_all_runtime(
-            self._runtime_entries(), active_plugins=plugins
-        )
+        # CommandIndex 可能仍含刚卸载或未激活插件的缓存条目；全量快照必须
+        # 以 Context 的 activated stars 为边界，不能让一条陈旧命令回滚整批同步。
+        entries = [
+            entry
+            for entry in self._runtime_entries()
+            if str(entry.get("plugin") or "") in plugins
+        ]
+        return self.catalog_service.sync_all_runtime(entries, active_plugins=plugins)
 
     def sync_plugin(self, plugin_metadata: Any) -> dict[str, int]:
         """插件加载时只同步该插件，并恢复其自定义关联。"""

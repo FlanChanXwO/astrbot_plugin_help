@@ -269,6 +269,46 @@ def test_sync_all_excludes_inactive_entries_like_active_plugin_snapshot(
     assert [item["plugin"] for item in page["items"]] == ["active"]
 
 
+def test_sync_all_normalizes_groups_and_ignores_commands_outside_active_snapshot(
+    tmp_path: Path,
+) -> None:
+    """4.26 registry 的 group 可执行；陈旧插件条目不能回滚全量同步。"""
+
+    class Index:
+        def get_all_commands(self):
+            return {
+                "/小说": {
+                    "plugin": "active_plugin",
+                    "command": "/小说",
+                    "type": "group",
+                },
+                "/旧命令": {
+                    "plugin": "stale_plugin",
+                    "command": "/旧命令",
+                    "type": "command",
+                },
+            }
+
+    runtime = CommandRuntimeService(
+        data_dir=tmp_path,
+        config=HelpPluginConfig(),
+        context=None,
+        command_index=Index(),
+        command_executor=None,
+    )
+    runtime.initialize()
+
+    result = runtime.sync_all([SimpleNamespace(name="active_plugin", activated=True)])
+
+    assert result["upserted"] == 1
+    page = runtime.catalog_service.list_commands(page=1, page_size=10)
+    assert len(page["items"]) == 1
+    group = page["items"][0]
+    assert group["command"] == "/小说"
+    assert group["type"] == "command"
+    assert group["plugin"] == "active_plugin"
+
+
 def test_plugin_reinitialize_rebinds_context_config_and_runtime_singletons(
     tmp_path: Path, monkeypatch
 ) -> None:
