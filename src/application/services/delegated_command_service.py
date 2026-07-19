@@ -112,9 +112,13 @@ class DelegatedCommandService:
         target_user: str = "",
     ) -> str:
         """执行完整委托链；任何调度结论都先落回执，再处理历史。"""
+        requester_id = str(event.get_sender_id())
+        if actor != "self" and not target_user.strip():
+            target_user = self.runtime.identity_service.infer_explicit_at_target(
+                event, requester_id=requester_id
+            )
         if actor == "self" and target_user.strip():
             return self._rejected(None, "actor=self 与 target_user 互斥")
-        requester_id = str(event.get_sender_id())
         is_admin = bool(event.is_admin())
         config = self._config_getter()
         if target_user.strip() and is_admin and config.allow_admin_target_override:

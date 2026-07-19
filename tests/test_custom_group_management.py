@@ -159,7 +159,11 @@ def test_execute_tool_registers_explicit_command_schema():
             },
             "target_user": {
                 "type": "string",
-                "description": "可选目标用户：昵称、UID、@、reply_target 或 resolve 返回的 target_ref。",
+                "description": (
+                    "代别人执行时必须传；填写用户昵称、UID、当前消息中的 @、"
+                    "reply_target，或 resolve_astrbot_user 返回的 target_ref。"
+                    "只有明确为请求者本人执行时才省略。"
+                ),
             },
         },
         "required": ["command"],

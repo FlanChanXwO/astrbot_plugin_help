@@ -36,6 +36,8 @@ main.py
 
 `execute_astrbot_command` 保留原请求者的权限、管理员角色和插件可用范围；跨用户时仅把 synthetic sender 改为目标。通用处理器按 filter 类型识别。自定义目录只进入外部通用路由时返回 `external_dispatched`。
 
+Agent 为他人执行时必须传 `target_user`。为防模型漏参造成命令落到请求者本人，当前消息同时 `@机器人` 且只有一个非请求者第三方 `@` 时，执行链会恢复该强身份目标；昵称文本、多目标等弱信号不自动推断。
+
 终态包括 `completed`、`accepted`、`external_dispatched`、`duplicate_suppressed`、`rejected` 和 `failed`。前四种已调度状态不得重复调用；handler 已调度后才失败时仍保留 `failed` 语义，但以 `dispatched=true`、`retryable=false` 参与重复抑制。去重键由会话、请求者、目标和规范化命令组成。只把前三种写入目标用户历史。
 
 委托策略：`normal` 允许跨用户；`sensitive` 还需管理员、全局开关和目标同意；`forbidden` 禁止跨用户。管理员命令最低自动提升为 `sensitive`，插件更新只向更严格方向提升。

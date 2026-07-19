@@ -614,6 +614,35 @@ async def test_execute_delegated_command_is_dispatched_once_and_history_belongs_
 
 
 @pytest.mark.asyncio
+async def test_execute_infers_unique_explicit_at_target_when_agent_omits_parameter(
+    tmp_path: Path,
+) -> None:
+    """模型漏传 target_user 时，显式 @ 的唯一第三方仍应成为执行目标。"""
+
+    class At:
+        def __init__(self, qq: str, name: str = "") -> None:
+            self.qq = qq
+            self.name = name
+
+    service, executor, runtime = _runtime_help_service(tmp_path, HelpPluginConfig())
+    runtime.catalog.save_command(
+        CatalogCommand(source_kind="custom", command_key="打卡")
+    )
+    event = MockAstrMessageEvent(
+        message="帮橡皮糖打卡",
+        user_id="requester",
+        self_id="bot",
+        group_id="group",
+    )
+    event.message_obj.message = [At("bot", "机器人"), At("target", "橡皮糖")]
+
+    result = json.loads(await service.execute_command(event, "打卡"))
+
+    assert result["execution_state"] == "completed"
+    assert executor.calls[0]["target_user_id"] == "target"
+
+
+@pytest.mark.asyncio
 async def test_sensitive_cross_user_command_requires_global_enable(
     tmp_path: Path,
 ) -> None:

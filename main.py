@@ -42,7 +42,11 @@ EXECUTE_ASTRBOT_COMMAND_PARAMETERS: dict[str, Any] = {
         },
         "target_user": {
             "type": "string",
-            "description": "可选目标用户：昵称、UID、@、reply_target 或 resolve 返回的 target_ref。",
+            "description": (
+                "代别人执行时必须传；填写用户昵称、UID、当前消息中的 @、"
+                "reply_target，或 resolve_astrbot_user 返回的 target_ref。"
+                "只有明确为请求者本人执行时才省略。"
+            ),
         },
     },
     "required": ["command"],
@@ -148,7 +152,9 @@ class HelpPlugin(Star):
         tool = FunctionTool(
             name="execute_astrbot_command",
             description=(
-                "以原请求者权限在当前聊天执行 AstrBot 命令，可为已解析目标用户委托。"
+                "以原请求者权限在当前聊天执行 AstrBot 命令。用户要求给别人执行时，"
+                "必须把该用户作为 target_user 传入，不能省略或改为请求者本人；"
+                "昵称不唯一时先调用 resolve_astrbot_user。"
                 "completed 表示完成；accepted、external_dispatched 和 duplicate_suppressed "
                 "均表示已受理且不得重复调用；仅 retryable=true 的 failed 可重试。"
             ),

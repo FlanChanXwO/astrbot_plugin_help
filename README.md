@@ -43,6 +43,8 @@ v2 删除了 `/helps`、`/help_refresh` 及其中文别名。命令发现改用 
 
 `execute_astrbot_command.command` 必填，即使目标命令无额外参数也要传完整触发文本。`accepted`、`external_dispatched` 和 `duplicate_suppressed` 都表示不得重复调度；只有 `retryable=true` 的 `failed` 才可重试。若 handler 已调度后才失败，回执保持 `failed`，但会返回 `dispatched=true`、`retryable=false` 并参与 60 秒重复抑制。插件内置 Agent 指南见 [`skills/astrbot-command-assistant/SKILL.md`](skills/astrbot-command-assistant/SKILL.md)。
 
+为他人执行时必须传 `target_user`。若模型在“@机器人 + 唯一第三方 @”的当前消息中漏传该字段，插件会从强身份信号恢复目标；纯昵称、重名或多个第三方目标不会自动猜测。
+
 ## 配置
 
 | 字段 | 默认值 | 说明 |

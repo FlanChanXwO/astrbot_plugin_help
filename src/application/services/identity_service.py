@@ -155,6 +155,29 @@ class IdentityService:
         """通过独立解析管线解析会话目标。"""
         return await self._resolver.resolve(event, reference, requester_id=requester_id)
 
+    @staticmethod
+    def infer_explicit_at_target(event: Any, *, requester_id: str) -> str:
+        """从“@机器人 + 唯一第三方”消息中恢复模型漏传的委托目标。
+
+        这里只接受当前消息的强身份信号，并要求消息确实 @ 了机器人；昵称文本、
+        多目标或普通聊天中的单独 @ 均不猜测，避免把本人的命令误委托给他人。
+        """
+        self_id = str(event.get_self_id() or "").strip()
+        mentioned_self = False
+        targets: set[str] = set()
+        for component in event.get_messages():
+            names = {cls.__name__ for cls in type(component).__mro__}
+            target_id = str(getattr(component, "qq", "") or "").strip()
+            if "AtAll" in names or "At" not in names or not target_id:
+                continue
+            if target_id == self_id:
+                mentioned_self = True
+            elif target_id != str(requester_id):
+                targets.add(target_id)
+        if mentioned_self and len(targets) == 1:
+            return f"uid:{next(iter(targets))}"
+        return ""
+
     async def resolve_for_management(
         self, event: Any, reference: object, *, requester_id: str
     ) -> tuple[dict[str, object], str | None]:

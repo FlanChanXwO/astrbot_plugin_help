@@ -11,7 +11,7 @@ description: 指导 Agent 搜索、解析目标用户并执行 AstrBot 命令；
 
 1. 调用 `search_astrbot_command` 搜索命令；为别人执行时传 `target_user`，偏好只用于排序，不得向请求者泄露目标用户历史。
 2. 若目标是昵称、@、回复对象或个人别名，调用 `resolve_astrbot_user`。只有 `resolved` 才能执行；`ambiguous` 必须让用户从候选中确认，禁止猜测。
-3. 调用 `execute_astrbot_command`，传完整 `command`；代操作时传解析得到的 `target_ref`。原请求者承担权限检查，输出仍回当前聊天。
+3. 调用 `execute_astrbot_command`，传完整 `command`；代操作时 **必须** 传解析得到的 `target_ref`，不得只传 `command`。原请求者承担权限检查，输出仍回当前聊天。
 4. 根据结构化回执回答，不要把“暂时没有消息”解释为失败。
 
 ## 用户引用与别名
@@ -43,7 +43,7 @@ description: 指导 Agent 搜索、解析目标用户并执行 AstrBot 命令；
 
 - 无参数：“帮我打卡” → 搜索 `打卡` → `execute_astrbot_command(command="打卡")`。
 - 带参数：“查上海天气” → 搜索天气命令 → 执行返回的完整示例，如 `天气 上海`。
-- @ 目标：“给 @橡皮糖 打卡” → `resolve_astrbot_user(reference="@橡皮糖")` → 执行时传 `target_ref`。
+- @ 目标：“给 @橡皮糖 打卡” → `resolve_astrbot_user(reference="@橡皮糖")` → `execute_astrbot_command(command="打卡", target_user="<target_ref>")`。
 - 回复目标：“给我回复的这个人打卡” → `resolve_astrbot_user(reference="reply_target")`。
 - 昵称：“给橡皮糖打卡” → 先解析昵称；唯一精确匹配才执行。
 - 重名：解析返回 `ambiguous` → 展示候选并等待用户确认，不执行命令。
