@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.0.3] - 2026-07-20
+
+### Fixed
+- 修复跨用户代执行的 synthetic event 被 AstrBot 内置主动回复处理器误当成目标用户真实发言，继而启动第二次 Agent 请求、污染对话归因并重复调用命令的问题。
+- synthetic 调度现在仅排除内置主动回复入口；具体命令 handler 与 GScore 等外部转发 handler 仍按原链路执行。
+
 ## [2.0.2] - 2026-07-19
 
 ### Fixed

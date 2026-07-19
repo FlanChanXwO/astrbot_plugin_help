@@ -162,7 +162,7 @@ def test_execute_tool_registers_explicit_command_schema():
                 "description": (
                     "每次调用都必须传；本人填 requester，代别人执行时填写用户昵称、UID、当前消息中的 @、"
                     "reply_target，或 resolve_astrbot_user 返回的 target_ref。"
-                    "actor=self 时填 bot。"
+                    "actor=self 时填 bot。target_user 只指定命令作用身份，不表示该目标用户发言或提出了请求。"
                 ),
             },
         },

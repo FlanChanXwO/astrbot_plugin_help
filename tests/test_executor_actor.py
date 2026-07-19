@@ -234,6 +234,41 @@ class TestAsyncDispatch:
     """命令执行只等待调度成功，不等待后台结果。"""
 
     @pytest.mark.asyncio
+    async def test_synthetic_dispatch_excludes_builtin_active_reply_handler(
+        self, mock_event
+    ):
+        """代执行事件不能被内置主动回复再次解释成目标用户的新请求。"""
+        builtin_active_reply = MockHandler(
+            "on_message",
+            event_filters=[SimpleNamespace(filter_type="platform_adapter_type")],
+            handler_module_path="astrbot.builtin_stars.astrbot.main",
+        )
+        command_handler = MockHandler(
+            "help",
+            event_filters=[MockCommandFilter("help")],
+            handler_module_path="help_plugin",
+        )
+        forwarding_handler = MockHandler(
+            "on_all_message",
+            event_filters=[SimpleNamespace(filter_type="event_message_type")],
+            handler_module_path="data.plugins.astrbot_plugin_gscore_adapter.main",
+        )
+        _WakingCheckStage.handlers = [
+            builtin_active_reply,
+            forwarding_handler,
+            command_handler,
+        ]
+        executor = CommandExecutor()
+
+        execution = await executor._run_waking_check(mock_event)
+
+        assert execution["matched_handlers"] == [forwarding_handler, command_handler]
+        assert mock_event.get_extra("activated_handlers") == [
+            forwarding_handler,
+            command_handler,
+        ]
+
+    @pytest.mark.asyncio
     async def test_user_actor_returns_after_dispatch(self, mock_event):
         """user actor 调度后立即返回，后台稍后发送结果。"""
         executor = CommandExecutor()

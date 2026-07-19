@@ -45,7 +45,7 @@ EXECUTE_ASTRBOT_COMMAND_PARAMETERS: dict[str, Any] = {
             "description": (
                 "每次调用都必须传；本人填 requester，代别人执行时填写用户昵称、UID、当前消息中的 @、"
                 "reply_target，或 resolve_astrbot_user 返回的 target_ref。"
-                "actor=self 时填 bot。"
+                "actor=self 时填 bot。target_user 只指定命令作用身份，不表示该目标用户发言或提出了请求。"
             ),
         },
     },
@@ -156,6 +156,7 @@ class HelpPlugin(Star):
                 "必须把该用户作为 target_user 传入，不能省略或改为请求者本人；"
                 "为请求者本人执行也必须传 target_user=requester；"
                 "昵称不唯一时先调用 resolve_astrbot_user。"
+                "target_user 只是命令作用身份，不能据此声称目标用户发过消息或提出请求。"
                 "completed 表示完成；accepted、external_dispatched 和 duplicate_suppressed "
                 "均表示已受理且不得重复调用；仅 retryable=true 的 failed 可重试。"
             ),
@@ -628,7 +629,7 @@ class HelpPlugin(Star):
             actor(string): 执行身份；``user`` 使用当前用户，``self`` 使用机器人自身（需开启对应配置）。
             result_mode(string): 结果监听方式；可为 ``auto``、``background`` 或 ``custom``。
             wait_seconds(number): ``custom`` 模式的监听秒数；其他模式不传。
-            target_user(string): 必填；本人用 requester，代操作用昵称、UID、@、reply_target 或 target_ref；actor=self 时用 bot。
+            target_user(string): 必填；本人用 requester，代操作用昵称、UID、@、reply_target 或 target_ref；actor=self 时用 bot。该字段只指定命令作用身份，不代表目标用户发言或提出请求。
         """
         service = get_help_service()
         return await service.execute_command(

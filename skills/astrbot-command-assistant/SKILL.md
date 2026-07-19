@@ -14,6 +14,8 @@ description: 指导 Agent 搜索、解析目标用户并执行 AstrBot 命令；
 3. 调用 `execute_astrbot_command`，每次都传完整 `command` 和 `target_user`；本人填 `requester`，代操作填解析得到的 `target_ref`，不得只传 `command`。原请求者承担权限检查，输出仍回当前聊天。
 4. 根据结构化回执回答，不要把“暂时没有消息”解释为失败。
 
+`target_user` 只表示命令以谁为作用身份。除非真实入站消息明确如此，否则不得声称目标用户与 Agent 对话、提出请求或要求再次执行；委托请求的来源始终是原请求者。
+
 ## 用户引用与别名
 
 - `target_user` 可传 UID、当前消息中的 @、`reply_target`、唯一昵称或 `target_ref`。

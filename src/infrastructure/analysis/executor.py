@@ -143,6 +143,21 @@ class CommandExecutor:
                 return False
         return True
 
+    @staticmethod
+    def _is_builtin_active_reply_handler(handler) -> bool:
+        """识别会把普通群消息转成新 Agent 请求的 AstrBot 内置处理器。
+
+        synthetic event 必须保留目标用户 sender，才能让被委托命令读取正确身份；
+        但内置主动回复会把同一事件误认为目标用户的新消息，并产生第二次 LLM 请求。
+        这里只排除该宿主处理器，不影响具体命令及外部 Bot 转发处理器。
+        """
+        module_path = str(getattr(handler, "handler_module_path", ""))
+        handler_name = str(getattr(handler, "handler_name", ""))
+        return (
+            module_path == "astrbot.builtin_stars.astrbot.main"
+            and handler_name == "on_message"
+        )
+
     def _bind_command_event_sender(
         self, command_event: AstrMessageEvent, source_event: AstrMessageEvent
     ) -> None:
@@ -201,6 +216,13 @@ class CommandExecutor:
         await waking_stage.process(command_event)
 
         activated_handlers = command_event.get_extra("activated_handlers", []) or []
+        activated_handlers = [
+            handler
+            for handler in activated_handlers
+            if not self._is_builtin_active_reply_handler(handler)
+        ]
+        # ProcessStage 直接读取 event extra，故必须在后台调度前同步替换。
+        command_event.set_extra("activated_handlers", activated_handlers)
         return {
             "matched_handlers": activated_handlers,
             "pipeline_context": pipeline_context,
