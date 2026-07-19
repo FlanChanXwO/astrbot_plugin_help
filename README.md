@@ -43,7 +43,7 @@ v2 删除了 `/helps`、`/help_refresh` 及其中文别名。命令发现改用 
 
 `execute_astrbot_command.command` 和 `target_user` 均必填。即使目标命令无额外参数也要传完整触发文本；为请求者本人执行时传 `target_user="requester"`，为他人执行时传昵称、UID、@ 或解析得到的 `target_ref`。`accepted`、`external_dispatched` 和 `duplicate_suppressed` 都表示不得重复调度；只有 `retryable=true` 的 `failed` 才可重试。若 handler 已调度后才失败，回执保持 `failed`，但会返回 `dispatched=true`、`retryable=false` 并参与 60 秒重复抑制。插件内置 Agent 指南见 [`skills/astrbot-command-assistant/SKILL.md`](skills/astrbot-command-assistant/SKILL.md)。
 
-`target_user` 只指定命令作用身份，不代表目标用户发过消息或提出请求。synthetic 调度不会进入 AstrBot 内置主动回复入口，因此跨用户命令完成后不应产生以目标用户口吻开始的第二次 Agent 请求。
+`target_user` 只指定命令作用身份，不代表目标用户发过消息或提出请求。synthetic 调度既不会进入 AstrBot 内置主动回复入口，也会阻断第三方 handler 改写唤醒状态后触发的默认 Agent，因此跨用户命令完成后不应产生以目标用户口吻开始的第二次 Agent 请求。
 
 若模型在“@机器人 + 唯一第三方 @”的当前消息中漏传目标，插件会从强身份信号恢复；纯昵称可解析会话内唯一的完整显示名或首段昵称。明确出现第三方委托语义却仍漏参时会拒绝执行，重名或多个目标也不会猜测。
 

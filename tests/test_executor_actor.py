@@ -234,6 +234,71 @@ class TestAsyncDispatch:
     """命令执行只等待调度成功，不等待后台结果。"""
 
     @pytest.mark.asyncio
+    async def test_third_party_flag_mutation_cannot_reenter_default_agent(
+        self, mock_event
+    ):
+        """复现 wakepro + message_stats 改写标志后触发默认 Agent 的线上链路。"""
+
+        class ReentryScheduler:
+            default_agent_started = False
+
+            def __init__(self, ctx):
+                self.ctx = ctx
+                self.stages = [type("ProcessStage", (), {})()]
+
+            async def initialize(self) -> None:
+                return None
+
+            async def _process_stages(self, event, from_stage=0) -> None:
+                # wakepro 会重新标记唤醒，message_stats 会覆盖 call_llm。
+                event.is_at_or_wake_command = True
+                event.call_llm = False
+                if (
+                    not event._has_send_oper
+                    and self.ctx.astrbot_config["provider_settings"]["enable"]
+                    and event.is_at_or_wake_command
+                    and not event.call_llm
+                ):
+                    type(self).default_agent_started = True
+                await event.send(f"命令结果:{event.get_message_str()}")
+
+        host_config = {
+            "admins_id": [],
+            "plugin_set": ["*"],
+            "wake_prefix": ["/"],
+            "platform_settings": {
+                "ignore_bot_self_message": True,
+                "no_permission_reply": True,
+            },
+            "provider_settings": {
+                "enable": True,
+                "identifier": "online-provider",
+                "prompt_prefix": "",
+            },
+        }
+        executor = CommandExecutor()
+        executor.context.get_config = lambda umo=None: host_config
+        executor.cfg.enable_ai_command_notify = False
+        executor.cfg.enable_ai_command_result = False
+
+        with patch.object(
+            executor,
+            "_create_pipeline_scheduler",
+            lambda pipeline_context: ReentryScheduler(pipeline_context),
+        ):
+            result = await executor.execute(
+                event=mock_event,
+                command="/help",
+                actor="user",
+                result_mode="background",
+            )
+            await asyncio.gather(*executor._background_tasks)
+
+        assert result["success"] is True
+        assert ReentryScheduler.default_agent_started is False
+        assert host_config["provider_settings"]["enable"] is True
+
+    @pytest.mark.asyncio
     async def test_synthetic_dispatch_excludes_builtin_active_reply_handler(
         self, mock_event
     ):

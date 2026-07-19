@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.0.4] - 2026-07-20
+
+### Fixed
+- 修复第三方通用 handler 联合改写 synthetic event 状态后仍可重新触发默认 Agent 的问题：线上 `wakepro` 会恢复唤醒标志，`message_stats` 会覆盖 `call_llm`，使目标用户身份再次被误认成真实入站消息。
+- synthetic 命令现在预占 AstrBot 的默认回复发送门禁，阻止任何后续状态改写进入默认 Agent；命令 handler 显式发起的 `ProviderRequest`、普通命令输出和 GScore 外部转发不受影响。
+
 ## [2.0.3] - 2026-07-20
 
 ### Fixed

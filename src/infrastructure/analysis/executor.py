@@ -118,7 +118,11 @@ class CommandExecutor:
         command_event.call_llm = True
         command_event.plugins_name = None
         command_event._force_stopped = False
-        command_event._has_send_oper = False
+        # AstrBot ProcessStage 仅在“尚无发送操作”时启动默认 Agent。synthetic
+        # 调度的输出已由本 tool 接管，预占该标志可防止通用 handler 重写
+        # call_llm / is_at_or_wake_command 后把目标身份伪装成一条新入站消息。
+        # handler 显式返回 ProviderRequest 的路径位于该判断之前，不受影响。
+        command_event._has_send_oper = True
         command_event.clear_result()
         if hasattr(command_event, "_extras"):
             command_event._extras = {}

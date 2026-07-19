@@ -1,6 +1,6 @@
 name: astrbot_plugin_helpinfo
 display_name: 智能命令代理
 desc: AI 命令目录、身份解析、委托执行和用户偏好
-version: v2.0.3
+version: v2.0.4
 author: FlanChanXwO
 repo: https://github.com/FlanChanXwO/astrbot_plugin_helpinfo

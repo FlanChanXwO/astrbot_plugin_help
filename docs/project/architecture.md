@@ -34,7 +34,7 @@ main.py
 
 ## 调度与回执
 
-`execute_astrbot_command` 保留原请求者的权限、管理员角色和插件可用范围；跨用户时仅把 synthetic sender 改为目标。synthetic 调度会排除 AstrBot 内置的主动回复 `on_message`，防止目标身份被误认为一条真实入站消息并再次触发 Agent；具体命令与外部转发 handler 不受影响。通用处理器按 filter 类型识别。自定义目录只进入外部通用路由时返回 `external_dispatched`。
+`execute_astrbot_command` 保留原请求者的权限、管理员角色和插件可用范围；跨用户时仅把 synthetic sender 改为目标。synthetic 调度会排除 AstrBot 内置的主动回复 `on_message`，并预占 `ProcessStage` 的默认回复发送门禁；即使第三方通用 handler 随后改写 `call_llm` 或唤醒标志，也不能把目标身份误认为一条真实入站消息并再次触发默认 Agent。命令 handler 显式返回的 `ProviderRequest` 与外部转发 handler 不受影响。通用处理器按 filter 类型识别。自定义目录只进入外部通用路由时返回 `external_dispatched`。
 
 Agent 每次执行都必须传 `target_user`：本人使用 `requester`，第三方使用昵称、UID、@ 或 `target_ref`。当前消息同时 `@机器人` 且只有一个非请求者第三方 `@` 时可恢复强身份目标；纯昵称支持会话内唯一的完整显示名或首段昵称。若原消息明确表达第三方委托却仍漏参，执行链 fail-closed；重名和多目标不猜测。
 

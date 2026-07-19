@@ -33,6 +33,7 @@ def test_synthetic_target_changes_sender_but_preserves_requester_role(
     assert delegated.unified_msg_origin == mock_event.unified_msg_origin
     # AstrBot 4.26.6 中 True 表示禁止 ProcessStage 末尾的默认 LLM 请求。
     assert delegated.call_llm is True
+    assert delegated._has_send_oper is True
 
 
 def test_generic_handler_is_determined_by_filter_types_not_handler_name() -> None:
