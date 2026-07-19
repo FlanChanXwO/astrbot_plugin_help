@@ -160,13 +160,13 @@ def test_execute_tool_registers_explicit_command_schema():
             "target_user": {
                 "type": "string",
                 "description": (
-                    "代别人执行时必须传；填写用户昵称、UID、当前消息中的 @、"
+                    "每次调用都必须传；本人填 requester，代别人执行时填写用户昵称、UID、当前消息中的 @、"
                     "reply_target，或 resolve_astrbot_user 返回的 target_ref。"
-                    "只有明确为请求者本人执行时才省略。"
+                    "actor=self 时填 bot。"
                 ),
             },
         },
-        "required": ["command"],
+        "required": ["command", "target_user"],
         "additionalProperties": False,
     }
     assert tool.handler == plugin.execute_astrbot_command

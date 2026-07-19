@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+import re
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
@@ -157,6 +158,32 @@ class IdentityResolutionPipeline:
             return self._ambiguous(
                 event=event,
                 matches=exact,
+                source=source,
+                freshness=freshness,
+                warnings=warnings,
+            )
+        # 群名片常在昵称后追加游戏 UID、等级等信息。首段昵称在当前会话中唯一时，
+        # 将它视为精确显示别名；同首段仍返回 ambiguous，不把一般模糊包含降格为成功。
+        short_exact = [
+            row
+            for row in rows
+            if re.split(r"[\s(（\[【]", str(row["normalized_name"]), maxsplit=1)[0]
+            == normalized_reference
+        ]
+        if len(short_exact) == 1:
+            row = short_exact[0]
+            return self._resolved(
+                event=event,
+                user_id=str(row["user_id"]),
+                display_name=str(row["display_name"]),
+                source=source,
+                freshness=freshness,
+                warnings=warnings,
+            )
+        if len(short_exact) > 1:
+            return self._ambiguous(
+                event=event,
+                matches=short_exact,
                 source=source,
                 freshness=freshness,
                 warnings=warnings,

@@ -35,3 +35,6 @@ def test_plugin_skill_has_discoverable_frontmatter_and_real_tools():
     ):
         assert f"`{state}`" in content
     assert content.count("绝不重试") >= 3
+    assert 'target_user="requester"' in content
+    assert 'target_user="<target_ref>"' in content
+    assert "游戏 UID 或账号序号" in content

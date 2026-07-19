@@ -643,6 +643,48 @@ async def test_execute_infers_unique_explicit_at_target_when_agent_omits_paramet
 
 
 @pytest.mark.asyncio
+async def test_execute_fails_closed_when_agent_omits_named_delegation_target(
+    tmp_path: Path,
+) -> None:
+    """自然语言明确委托第三方时，漏参不得静默落到请求者本人。"""
+    service, executor, runtime = _runtime_help_service(tmp_path, HelpPluginConfig())
+    runtime.catalog.save_command(
+        CatalogCommand(source_kind="custom", command_key="打卡")
+    )
+    event = MockAstrMessageEvent(
+        message="重读你的工具，帮橡皮糖打卡",
+        user_id="requester",
+        self_id="bot",
+        group_id="group",
+    )
+
+    result = json.loads(await service.execute_command(event, "打卡"))
+
+    assert result["execution_state"] == "rejected"
+    assert "target_user" in result["error"]
+    assert executor.calls == []
+
+
+@pytest.mark.asyncio
+async def test_execute_accepts_requester_sentinel_for_explicit_self_target(
+    tmp_path: Path,
+) -> None:
+    """必填 target_user 后，requester 明确表示以原请求者本人执行。"""
+    service, executor, runtime = _runtime_help_service(tmp_path, HelpPluginConfig())
+    runtime.catalog.save_command(
+        CatalogCommand(source_kind="custom", command_key="打卡")
+    )
+    event = MockAstrMessageEvent(user_id="requester", group_id="group")
+
+    result = json.loads(
+        await service.execute_command(event, "打卡", target_user="requester")
+    )
+
+    assert result["execution_state"] == "completed"
+    assert executor.calls[0]["target_user_id"] is None
+
+
+@pytest.mark.asyncio
 async def test_sensitive_cross_user_command_requires_global_enable(
     tmp_path: Path,
 ) -> None:

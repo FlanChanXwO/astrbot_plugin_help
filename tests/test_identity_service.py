@@ -301,6 +301,23 @@ async def test_live_roster_failure_exposes_warning_then_uses_observed_identity(
 
 
 @pytest.mark.asyncio
+async def test_unique_leading_display_name_is_an_exact_observed_alias(tmp_path):
+    """群名片带附加信息时，用户口中的唯一首段昵称仍可精确解析。"""
+    catalog = CommandCatalog(tmp_path / "command_catalog.db")
+    catalog.initialize()
+    service = IdentityService(catalog)
+    await service.observe_event(
+        GroupEvent(user_id="20002", nickname="橡皮糖 1001331196513 萌新")
+    )
+
+    result = await service.resolve(GroupEvent(), "橡皮糖", requester_id="10001")
+
+    assert result["status"] == "resolved"
+    assert result["display_name"] == "橡皮糖 1001331196513 萌新"
+    assert result["source"] == "observed"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "members",
     [

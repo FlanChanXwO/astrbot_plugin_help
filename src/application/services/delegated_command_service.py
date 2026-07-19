@@ -113,10 +113,21 @@ class DelegatedCommandService:
     ) -> str:
         """执行完整委托链；任何调度结论都先落回执，再处理历史。"""
         requester_id = str(event.get_sender_id())
+        normalized_target = target_user.strip().casefold()
+        if actor == "self" and normalized_target in {"bot", "self"}:
+            target_user = ""
         if actor != "self" and not target_user.strip():
             target_user = self.runtime.identity_service.infer_explicit_at_target(
                 event, requester_id=requester_id
             )
+            if (
+                not target_user
+                and self.runtime.identity_service.requests_third_party_delegation(event)
+            ):
+                return self._rejected(
+                    None,
+                    "检测到第三方委托，但 Agent 未传 target_user；请明确传 requester 或已解析目标",
+                )
         if actor == "self" and target_user.strip():
             return self._rejected(None, "actor=self 与 target_user 互斥")
         is_admin = bool(event.is_admin())

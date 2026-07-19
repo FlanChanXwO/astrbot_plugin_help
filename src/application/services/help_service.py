@@ -405,7 +405,10 @@ class HelpService:
     ) -> tuple[dict[str, object], str | None]:
         """解析目标并仅在后端取回 UID；LLM 结果继续使用 opaque ref。"""
         requester_id = str(event.get_sender_id())
-        if not target_user.strip():
+        if not target_user.strip() or target_user.strip().casefold() in {
+            "requester",
+            "current_user",
+        }:
             return (
                 {
                     "status": "resolved",

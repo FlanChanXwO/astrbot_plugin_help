@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -177,6 +178,23 @@ class IdentityService:
         if mentioned_self and len(targets) == 1:
             return f"uid:{next(iter(targets))}"
         return ""
+
+    @staticmethod
+    def requests_third_party_delegation(event: Any) -> bool:
+        """判断原消息是否明确表达了第三方委托但未提供结构化目标。
+
+        该判断只用于 fail-closed，绝不据此猜 UID；它避免 optional 参数再次把
+        “帮某人/为某人”静默解释成请求者本人。
+        """
+        get_message_str = getattr(event, "get_message_str", None)
+        message = str(get_message_str() if callable(get_message_str) else "")
+        return bool(
+            re.search(
+                r"(?:^|[\s,，。.!！?？;；])(?:请\s*)?(?:帮|给|替|为)\s*"
+                r"(?!我|自己|本人|忙)",
+                message,
+            )
+        )
 
     async def resolve_for_management(
         self, event: Any, reference: object, *, requester_id: str
